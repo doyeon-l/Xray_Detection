@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+
+{% block title %}분류 결과 목록{% endblock %}
+
+{% block head %}
+<style>
+    /* 정렬 가능한 테이블 헤더에 마우스 커서 변경 */
+    .sortable { cursor: pointer; }
+    .sortable:hover { background-color: #f2f2f2; }
+    /* 재분류 버튼 스타일 */
+    .reclassify-btn { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; }
+    .reclassify-btn:hover { opacity: 0.8; }
+    .btn-to-good { background-color: #28a745; color: white; }
+    .btn-to-bad { background-color: #dc3545; color: white; }
+    /* 메모 관련 스타일 */
+    .note-btn { padding: 3px 6px; font-size: 0.8rem; background-color: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer; margin-right: 5px;}
+    .note-btn:hover { background-color: #5a6268; }
+    .note-text { font-size: 0.9em; color: #555; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="list-section">
+  <h2 class=" list_title">분류 이미지 목록</h2>
+  
+  <div class="controls">
+    기준일: <input type="text" id="from_date" readonly> ~ <input type="text" id="to_date" readonly>
+    <select id="class_filter"><option value=""> 전체</option><option value="1">GOOD</option><option value="0">BAD</option></select>
+    파일명: <input type="text" id="search_term" placeholder="검색할 파일명 입력...">
+    <button id="search_btn">검색</button>
+    <button id="delete-btn">선택 삭제</button>
+    <a href="#" id="export_btn" class="export-btn">CSV로 내보내기</a>
+  </div>
+
+  <div id="upload_modal">
+    <h3>📤 이미지 업로드</h3>
+    기준일:
+    <input type="text" id="upload_std_date" readonly>
+    <input type="file" id="upload_files" multiple>
+    <button id="confirm_upload">업로드</button>
+  </div>
+  
+  <br/>
+  <div>총 건수: <span id="total_count">0</span></div>
+  <div id="list-container">
+    <table>
+        <thead>
+        <tr>
+            <th><input type="checkbox" id="check_all"></th>
+            <th>이미지</th>
+            <th class="sortable" data-column="org_image_name"><span>파일명</span><span class="sort-icon"></span></th>
+            <th class="sortable" data-column="std_date"><span>검출 기준일</span><span class="sort-icon"></span></th>
+            <th class="sortable" data-column="yolo_class"><span>불량 여부</span><span class="sort-icon"></span></th>
+            <th class="sortable" data-column="created_at"><span>업로드 일시</span><span class="sort-icon"></span></th>            
+            <th>메모</th>
+            <th>재분류 여부</th>  <!-- 열 추가 -->
+            <th>재분류</th>
+            <th>수정자</th>
+            <th>수정일시</th>
+        </tr>
+        </thead>
+        <tbody id="result_body"></tbody>
+    </table>
+  </div>
+</div>
+  <div id="image-modal" style="display:none;"><img id="modal-img" src="" /></div>
+
+  <script>
+    $(function() {
+      // --- 상태 관리 변수 ---
+      let sortBy = 'created_at';
+      let sortOrder = 'DESC';
+
+      // --- 날짜 선택기 초기화 ---
+      const today = new Date();
+      const aMonthAgo = new Date();
+      aMonthAgo.setMonth(today.getMonth() - 1);
+
+      $("#from_date, #upload_std_date").datepicker({ dateFormat: 'yy-mm-dd', maxDate: 0 });
+      $("#to_date").datepicker({ dateFormat: 'yy-mm-dd', maxDate: 0 });
+      
+      $("#from_date").datepicker("setDate", aMonthAgo);
+      $("#to_date").datepicker("setDate", today);
+      $("#upload_std_date").datepicker("setDate", today);
+
+      // --- 데이터 로드 및 테이블 렌더링 함수 ---
+      function loadList() {
+        const params = {
+          from_date: $('#from_date').val().replace(/-/g, ''),
+          to_date: $('#to_date').val().replace(/-/g, ''),
+          yolo_class: $('#class_filter').val(),
+          search_term: $('#search_term').val(),
+          sort_by: sortBy,
+          sort_order: sortOrder
+        };
+
+        $.get('/api/list', params, function(data) {
+          $('#result_body').empty();
+          $('#total_count').text(data.length);
+          $('#export_btn').attr('href', '/api/export?' + $.param(params));
+
+          $.each(data, function(_, row) {
+            const date = row.std_date;
+            const formattedDate = `${date.substring(0,4)}-${date.substring(4,6)}-${date.substring(6,8)}`;
+            
+            let reclassifyBtn = (row.yolo_class == '1') ?
+                `<button class="reclassify-btn btn-to-bad" data-id="${row.id}" data-name="${row.org_image_name}" data-new-class="0">불량으로 변경</button>` :
+                `<button class="reclassify-btn btn-to-good" data-id="${row.id}" data-name="${row.org_image_name}" data-new-class="1">정상으로 변경</button>`;
+            
+            // is_reclassified 값에 따라 텍스트를 생성합니다. (Yes/No)
+            const reclassifiedText = row.is_reclassified ? '<span style="color:blue; font-weight:bold;">Yes</span>' : 'No';
+
+            // 💡 수정된 부분: 이미지 경로를 있는 그대로 사용합니다. 
+            // DB에서 경로를 수정했기 때문에 더 이상 replace가 필요 없습니다.
+            const imagePath = `${row.image_path}`;
+
+            const tr = `
+              <tr>
+                <td><input type="checkbox" class="row_chk" data-id="${row.id}"></td>
+                <td><img src="${row.image_path}" class="thumbnail" data-full="${row.image_path}"></td>
+                <td>${row.org_image_name}</td>
+                <td>${formattedDate}</td>
+                <td>${row.yolo_class == '1' ? 'GOOD' : '<b style="color:red">BAD</b>'}</td>
+                <td>${row.created_at}</td>
+                <td>
+                    <button class="note-btn" data-id="${row.id}" data-note="${row.note || ''}">📝</button>
+                    <span class="note-text">${row.note || ''}</span>
+                </td>
+                <td>${reclassifiedText}</td>
+                <td>${reclassifyBtn}</td>
+                <td>${row.modified_by || ''}</td>
+                <td>${row.modified_at || ''}</td>
+              </tr>`;
+            $('#result_body').append(tr);
+          });
+        });
+      }
+      
+      // 최초 로드
+      loadList();
+
+      // --- 이벤트 핸들러 ---
+
+      // 검색 버튼 및 Enter 키
+      $('#search_btn').click(loadList);
+      $('#search_term').on('keypress', e => { if (e.which === 13) loadList(); });
+
+      // 정렬
+      $('.sortable').click(function() {
+          const column = $(this).data('column');
+          if (sortBy === column) {
+              sortOrder = (sortOrder === 'ASC') ? 'DESC' : 'ASC';
+          } else {
+              sortBy = column;
+              sortOrder = 'DESC';
+          }
+
+          // 1. 모든 헤더에서 아이콘 텍스트를 지웁니다.
+          $('.sort-icon').text('');
+          
+          // 2. 현재 클릭된 헤더에만 올바른 아이콘을 설정합니다.
+          $(this).find('.sort-icon').text(sortOrder === 'ASC' ? ' 🔼' : ' 🔽');
+          
+          loadList();
+      });
+
+      // 재분류 버튼
+      $(document).on('click', '.reclassify-btn', function() {
+        const itemId = $(this).data('id');
+        const itemName = $(this).data('name');
+        const newClass = $(this).data('new-class').toString();
+        const actionText = newClass === '1' ? '정상' : '불량';
+
+        if (confirm(`'${itemName}' 파일을 '${actionText}'(으)로 변경하시겠습니까?`)) {
+            $.ajax({
+                url: '/api/reclassify', type: 'POST', contentType: 'application/json',
+                data: JSON.stringify({ id: itemId, new_class: newClass }),
+                success: res => {
+                    if (res.status === 'success') {
+                        alert(`'${itemName}' 파일이 성공적으로 변경되었습니다.`);
+                        loadList();
+                    } else { alert('오류: ' + res.message); }
+                },
+                error: () => alert('서버 통신 오류가 발생했습니다.')
+            });
+        }
+      });
+      
+      $(document).on('click', '.thumbnail', function () {
+        const fullSrc = $(this).data('full');
+        $('#modal-img').attr('src', fullSrc);
+        $('#image-modal').css('display', 'flex').fadeIn();
+      });
+
+      $('#image-modal').click(function () {
+        $(this).fadeOut();
+      });  
+
+      // 메모 버튼 (이벤트 핸들러 추가)
+      $(document).on('click', '.note-btn', function() {
+        const btn = $(this);
+        const itemId = btn.data('id');
+        const currentNote = btn.data('note') || ''; // null일 경우 빈 문자열로 처리
+        const newNote = prompt("메모를 입력하세요:", currentNote);
+
+        if (newNote !== null && newNote !== currentNote) {
+            $.ajax({
+                url: '/api/update_note',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ id: itemId, note: newNote }),
+                success: function(res) {
+                    if(res.status === 'success') {
+                        alert("메모가 저장되었습니다.");
+                        btn.data('note', newNote);
+                        btn.siblings('.note-text').text(newNote);
+                    } else {
+                        alert("메모 저장에 실패했습니다.");
+                    }
+                },
+                error: function() {
+                    alert("서버 통신 오류가 발생했습니다.");
+                }
+            });
+        }
+      });
+
+      // --- 나머지 기존 이벤트 핸들러들 ---
+      $('#check_all').click(function() {
+        $('.row_chk').prop('checked', $(this).is(':checked'));
+      });
+
+      $('#delete-btn').click(function() {
+        const ids = $('.row_chk:checked').map((_, el) => $(el).data('id')).get();
+        if (ids.length == 0) return alert("선택된 항목이 없습니다.");
+
+        if (confirm("정말 삭제하시겠습니까?")) {
+          $.ajax({
+            url: '/api/delete',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ ids }),
+            success: loadList
+          });
+        }
+      });
+      
+      $('#confirm_upload').on('click', function () {
+        const files = $('#upload_files')[0].files;
+        const stdDate = $('#upload_std_date').val().replace(/-/g, '');
+
+        if (!stdDate) {
+          alert('기준일을 선택하세요.');
+          return;
+        }
+
+        if (files.length === 0) {
+          alert('업로드할 파일을 선택하세요.');
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('std_date', stdDate);
+        for (let i = 0; i < files.length; i++) {
+          formData.append('files', files[i]);
+        }
+
+        $.ajax({
+          url: '/upload2',
+          type: 'POST',
+          data: formData,
+          processData: false,
+          contentType: false,
+          success: function (response) {
+            if (response.status === 'success') {
+              alert('이미지 업로드가 완료되었습니다.');
+              loadList();
+            } else {
+              alert('업로드 중 오류 발생: ');
+            }
+          },
+          error: function (xhr) {
+            alert('업로드 중 오류 발생: ');
+          }
+        });
+      });
+
+      loadList();
+    });
+  </script>
+{% endblock %}

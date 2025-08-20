@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>분류 통계 대시보드</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        #charts { display: flex; gap: 30px; flex-wrap: wrap; }
+        canvas { width: 400px !important; height: 300px !important; }
+    </style>
+</head>
+<body>
+<h2>📊 이미지 분류 통계</h2>
+
+<div id="charts">
+    <canvas id="dailyChart"></canvas>
+    <canvas id="weeklyChart"></canvas>
+    <canvas id="monthlyChart"></canvas>
+</div>
+<div><a href = "/list">상세 목록</a></div>
+
+<script>
+function renderChart(canvasId, labels, data, title) {
+    new Chart($("#" + canvasId), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                { label: '정상', data: data.good, backgroundColor: 'green' },
+                { label: '불량', data: data.bad, backgroundColor: 'red' },
+                { label: '불량률(%)', data: data.rate, type: 'line', borderColor: 'blue', yAxisID: 'y1' }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: { title: { display: true, text: title } },
+            scales: {
+                y: { beginAtZero: true, title: { display: true, text: '건수' } },
+                y1: {
+                    position: 'right',
+                    beginAtZero: true,
+                    grid: { drawOnChartArea: false },
+                    title: { display: true, text: '불량률(%)' }
+                }
+            }
+        }
+    });
+}
+
+function fetchAndRender(url, canvasId, title, labelKey = 'std_date') {
+    $.getJSON(url, function(data) {
+        const labels = data.map(d => d[labelKey]);
+        const good = data.map(d => d.good_count || d.ok_count || 0);
+        const bad = data.map(d => d.bad_count || d.ng_count || 0);
+        const rate = data.map(d => d.bad_rate || d.ng_rate || 0);
+        renderChart(canvasId, labels, { good, bad, rate }, title);
+    });
+}
+
+$(function() {
+    fetchAndRender('/stats/daily', 'dailyChart', '📆 일간 통계');
+    fetchAndRender('/stats/weekly', 'weeklyChart', '📅 주간 통계', 'week_label');
+    fetchAndRender('/stats/monthly', 'monthlyChart', '🗓️ 월간 통계', 'year_months');
+});
+</script>
+</body>
+</html>

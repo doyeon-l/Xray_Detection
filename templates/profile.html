@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block title %}계정 관리{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <h2>계정 관리</h2>
+    <p>회원 정보를 수정할 수 있습니다.</p>
+
+    <form method="POST" action="{{ url_for('profile') }}" id="profile-form">
+        <div class="form-group">
+            <label for="userid">아이디</label>
+            <input type="text" id="userid" name="userid" value="{{ current_user.username }}" readonly>
+        </div>
+        <div class="form-group">
+            <label for="name">이름</label>
+            <!-- 👇 user_data가 있으면 그 값을, 없으면 current_user 값을 사용 -->
+            <input type="text" id="name" name="name" value="{{ user_data.name or current_user.name }}" required>
+            <div class="feedback-message"></div>
+        </div>
+        <div class="form-group">
+            <label for="email">이메일</label>
+            <input type="email" id="email" name="email" value="{{ user_data.email or current_user.email }}" required>
+            <div class="feedback-message"></div>
+        </div>
+        <div class="form-group">
+            <label for="company">소속 기관/회사 (선택)</label>
+            <input type="text" id="company" name="company" value="{{ user_data.company or current_user.company or '' }}">
+        </div>
+        <div class="form-group">
+            <label for="role">직무 또는 역할 (선택)</label>
+            <input type="text" id="role" name="role" value="{{ user_data.role or current_user.role or '' }}" placeholder="예: 품질 관리, 데이터 분석가">
+        </div>
+
+        <hr class="form-divider">
+        
+        <h3 class="form-section-title">비밀번호 변경 (선택)</h3>
+        <p class="form-section-desc">비밀번호를 변경하려면 아래 항목을 모두 입력해주세요.</p>
+
+        <div class="form-group">
+            <label for="current_password">현재 비밀번호</label>
+            <input type="password" id="current_password" name="current_password">
+            <div id="current-password-feedback" class="feedback-message"></div>
+        </div>
+        <div class="form-group">
+            <label for="new_password">새 비밀번호</label>
+            <input type="password" id="new_password" name="new_password" placeholder="8~16자">
+            <div id="new-password-length-feedback" class="feedback-message"></div>
+        </div>
+        <div class="form-group">
+            <label for="confirm_new_password">새 비밀번호 확인</label>
+            <input type="password" id="confirm_new_password" name="confirm_new_password">
+            <div id="new-password-feedback" class="feedback-message"></div>
+        </div>
+
+        <button type="submit" class="auth-btn">정보 수정</button>
+    </form>
+    <hr class="form-divider">
+    <div class="delete-account-section">
+        <p>계정을 영구적으로 삭제하시려면 아래 버튼을 클릭하세요. 이 작업은 되돌릴 수 없습니다.</p>
+        <form id="delete-account-form" method="POST" action="{{ url_for('delete_account') }}">
+            <button type="button" id="delete-account-btn" class="btn-delete">회원 탈퇴</button>
+        </form>
+    </div>
+</div>
+
+<script>
+$(function() {
+    // --- 유효성 검사 상태 플래그 ---
+    let isCurrentPasswordValid = false;
+    let isNewPasswordLengthValid = false;
+    let isNewPasswordDifferent = false; // ✨ [새 플래그] 새 비밀번호가 현재와 다른지 여부
+    let isNewPasswordMatch = false;
+    let passwordCheckTimeout;
+
+    // ✨ [새 플래그] 이름과 이메일 유효성 플래그 추가
+    let isNameValid = true; // 페이지 로드 시에는 기존 값이 유효하다고 가정
+    let isEmailValid = true; // 페이지 로드 시에는 기존 값이 유효하다고 가정
+
+    // --- 1. 실시간 현재 비밀번호 확인 (기존과 동일) ---
+    $('#current_password').on('input', function() {
+        const password = $(this).val();
+        const feedback = $('#current-password-feedback');
+        clearTimeout(passwordCheckTimeout);
+
+        if (password.length === 0) {
+            feedback.text('');
+            isCurrentPasswordValid = false;
+            return;
+        }
+        passwordCheckTimeout = setTimeout(() => {
+            $.ajax({
+                url: '/check_current_password', type: 'POST',
+                contentType: 'application/json', data: JSON.stringify({ password: password }),
+                success: function(response) {
+                    if (response.valid) {
+                        feedback.text('현재 비밀번호가 일치합니다.').removeClass('unavailable').addClass('available');
+                        isCurrentPasswordValid = true;
+                    } else {
+                        feedback.text('현재 비밀번호가 일치하지 않습니다.').removeClass('available').addClass('unavailable');
+                        isCurrentPasswordValid = false;
+                    }
+                }
+            });
+        }, 500);
+    });
+
+    // --- 2. 실시간 새 비밀번호 유효성 검사 (✨ 수정된 부분) ---
+    // '현재 비밀번호' 또는 '새 비밀번호' 입력 시 모두 검사 실행
+    $('#current_password, #new_password').on('input', function() {
+        const currentPassword = $('#current_password').val();
+        const newPassword = $('#new_password').val();
+        const length = newPassword.length;
+        const feedback = $('#new-password-length-feedback');
+        
+        isNewPasswordDifferent = false; // 일단 false로 초기화
+
+        if (length === 0) {
+            feedback.text('');
+            isNewPasswordLengthValid = false;
+        } else if (length < 8) {
+            feedback.text('새 비밀번호는 8자 이상이어야 합니다.').removeClass('available').addClass('unavailable');
+            isNewPasswordLengthValid = false;
+        } else if (length > 16) {
+            feedback.text('새 비밀번호는 16자를 초과할 수 없습니다.').removeClass('available').addClass('unavailable');
+            isNewPasswordLengthValid = false;
+        // ✨ [핵심 추가] 새 비밀번호가 현재 비밀번호와 동일한지 검사
+        } else if (currentPassword.length > 0 && newPassword === currentPassword) {
+            feedback.text('새 비밀번호는 현재 비밀번호와 달라야 합니다.').removeClass('available').addClass('unavailable');
+            isNewPasswordLengthValid = false; // 길이 조건은 맞지만, 전체적으로는 유효하지 않음
+        } else {
+            feedback.text('사용 가능한 비밀번호입니다.').removeClass('unavailable').addClass('available');
+            isNewPasswordLengthValid = true;
+            isNewPasswordDifferent = true; // 모든 검증을 통과해야 true
+        }
+    });
+
+    // --- 3. 실시간 새 비밀번호 일치 확인 (기존과 동일) ---
+    $('#new_password, #confirm_new_password').on('input', function() {
+        const newPassword = $('#new_password').val();
+        const confirmPassword = $('#confirm_new_password').val();
+        const feedback = $('#new-password-feedback');
+        if (confirmPassword === '') {
+            feedback.text(''); isNewPasswordMatch = false; return;
+        }
+        if (newPassword === confirmPassword) {
+            feedback.text('새 비밀번호가 일치합니다.').removeClass('unavailable').addClass('available');
+            isNewPasswordMatch = true;
+        } else {
+            feedback.text('새 비밀번호가 일치하지 않습니다.').removeClass('available').addClass('unavailable');
+            isNewPasswordMatch = false;
+        }
+    });
+
+    // --- ✨ [새로 추가] 이름 필드 유효성 검사 ---
+    // register.html의 로직과 동일
+    $('#name').on('input focusout', function(event) {
+        const name = $(this).val();
+        const feedback = $(this).siblings('.feedback-message');
+        const nameRegex = /^\p{L}+$/u;
+
+        if (name === '') {
+            if (event.type === 'focusout') {
+                feedback.text('이름은 필수 입력 항목입니다.').removeClass('available').addClass('unavailable');
+            } else {
+                feedback.text('');
+            }
+            isNameValid = false;
+            return;
+        }
+        if (nameRegex.test(name)) {
+            feedback.text('');
+            isNameValid = true;
+        } else {
+            feedback.text('이름은 문자로만 입력해주세요. (숫자, 특수문자, 공백 제외)').removeClass('available').addClass('unavailable');
+            isNameValid = false;
+        }
+    });
+
+    // --- ✨ [새로 추가] 이메일 필드 유효성 검사 ---
+    // register.html의 로직과 동일
+    $('#email').on('input focusout', function(event) {
+        const email = $(this).val();
+        const feedback = $(this).siblings('.feedback-message');
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        if (email === '') {
+            if (event.type === 'focusout') {
+                feedback.text('이메일은 필수 입력 항목입니다.').removeClass('available').addClass('unavailable');
+            } else {
+                feedback.text('');
+            }
+            isEmailValid = false;
+            return;
+        }
+        if (emailRegex.test(email)) {
+            feedback.text('');
+            isEmailValid = true;
+        } else {
+            feedback.text('올바른 이메일 형식이 아닙니다.').removeClass('available').addClass('unavailable');
+            isEmailValid = false;
+        }
+    });
+
+    // --- 4. 폼 제출 시 최종 유효성 검사 (✨ 수정된 부분) ---
+    $('#profile-form').on('submit', function(event) {
+        if ($('#current_password').val() || $('#new_password').val() || $('#confirm_new_password').val()) {
+            if (!isCurrentPasswordValid) {
+                alert('현재 비밀번호가 일치하지 않습니다.');
+                event.preventDefault(); return;
+            }
+            if (!isNewPasswordLengthValid) {
+                alert('새 비밀번호는 8자 이상, 16자 이하로 설정해주세요.');
+                event.preventDefault(); return;
+            }
+            // ✨ [핵심 추가] 최종 제출 시에도 한번 더 확인
+            if (!isNewPasswordDifferent) {
+                alert('새 비밀번호는 현재 비밀번호와 다르게 설정해야 합니다.');
+                event.preventDefault(); return;
+            }
+            if (!isNewPasswordMatch) {
+                alert('새 비밀번호가 일치하지 않습니다.');
+                event.preventDefault(); return;
+            }
+        }
+
+        // [핵심 추가] 이름과 이메일 필드 최종 검사
+        if ($('#name').val() === '' || !isNameValid) {
+            alert('이름을 올바르게 입력해주세요.');
+            event.preventDefault(); return;
+        }
+        if ($('#email').val() === '' || !isEmailValid) {
+            alert('이메일을 올바르게 입력해주세요.');
+            event.preventDefault(); return;
+        }
+    });
+
+    // --- 회원 탈퇴 버튼 클릭 이벤트 ---
+    $('#delete-account-btn').on('click', function() {
+        // 사용자에게 재확인
+        if (confirm('정말로 회원에서 탈퇴하시겠습니까? 모든 정보가 영구적으로 삭제됩니다.')) {
+            // 확인 시 폼을 제출
+            $('#delete-account-form').submit();
+        }
+    });
+});
+</script>
+{% endblock %}

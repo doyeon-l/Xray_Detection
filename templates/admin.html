@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}회원 관리{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <h2>회원 관리</h2>
+    <p>총 {{ users|length }}명의 회원이 있습니다.</p>
+
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>아이디</th>
+                <th>이름</th>
+                <th>이메일</th>
+                <th>소속</th>
+                <th>역할</th>
+                <th>관리자</th>
+                <th>가입일</th>
+                <th>관리</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <!-- ✨ [핵심 수정] 현재 로그인한 사용자의 행에 'current-admin-row' 클래스를 추가 -->
+            <tr class="{{ 'current-admin-row' if user.id == current_user.id else '' }}">
+                <td>{{ user.id }}</td>
+                <td>{{ user.userid }}</td>
+                <td>{{ user.name }}</td>
+                <td>{{ user.email }}</td>
+                <td>{{ user.company }}</td>
+                <td>{{ user.role }}</td>
+                <td>
+                    {% if user.is_admin %}
+                        <span style="color: green; font-weight: bold;">Yes</span>
+                    {% else %}
+                        No
+                    {% endif %}
+                </td>
+                <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+                <td>
+                    <!-- ✨ [핵심 수정] 버튼 표시 로직을 더 단순화 -->
+
+                    <!-- 대상이 현재 로그인한 관리자가 아니고, '일반 사용자'일 경우에만 버튼 표시 -->
+                    {% if user.id != current_user.id and not user.is_admin %}
+                        
+                        <!-- 일반 사용자를 관리자로 임명하는 버튼 -->
+                        <form action="{{ url_for('toggle_admin', user_id=user.id) }}" method="POST" style="display:inline;">
+                            <button type="submit" class="btn-promote">관리자 임명</button>
+                        </form>
+                        
+                        <!-- 일반 사용자 삭제 버튼 -->
+                        <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" style="display:inline;" onsubmit="return confirm('정말로 이 사용자를 삭제하시겠습니까?');">
+                            <button type="submit" class="btn-delete">삭제</button>
+                        </form>
+
+                    <!-- 대상이 '자기 자신'일 경우 -->
+                    {% elif user.id == current_user.id %}
+                        <span class="self-indicator">(현재 계정)</span>
+                    
+                    <!-- 대상이 '다른 관리자'일 경우, 아무 버튼도 표시하지 않음 -->
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

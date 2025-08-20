@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+
+{% block title %}회원가입{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <h2>회원가입</h2>
+    <p>사용할 계정 정보를 입력해주세요.</p>
+
+    <form method="POST" action="{{ url_for('register') }}" id="register-form" novalidate>
+        <div class="form-group form-group-inline">
+            <div class="input-wrapper">
+                <label for="userid">아이디</label>
+                <input type="text" id="userid" name="userid" placeholder="4자 이상" required minlength="4">
+            </div>
+            <button type="button" id="check-userid-btn">중복 확인</button>
+        </div>
+        <div id="userid-feedback" class="feedback-message"></div>
+
+        <div class="form-group">
+            <label for="password">비밀번호</label>
+            <input type="password" id="password" name="password" placeholder="8~16자 입력" required>
+            <!-- 실시간 비밀번호 길이 피드백을 위한 요소 -->
+            <div id="password-length-feedback" class="feedback-message"></div>
+        </div>
+        <div class="form-group">
+            <label for="password_confirm">비밀번호 확인</label>
+            <input type="password" id="password_confirm" name="password_confirm" required>
+            <div id="password-feedback" class="feedback-message"></div>
+        </div>
+
+        <hr class="form-divider">
+
+        <div class="form-group">
+            <label for="name">이름</label>
+            <input type="text" id="name" name="name" required>
+            <div class="feedback-message"></div>
+        </div>
+        <div class="form-group">
+            <label for="email">이메일</label>
+            <input type="email" id="email" name="email" required>
+            <div id="email-feedback" class="feedback-message"></div>
+        </div>
+        <div class="form-group">
+            <label for="company">소속 기관/회사 (선택)</label>
+            <input type="text" id="company" name="company">
+        </div>
+        <div class="form-group">
+            <label for="role">직무 또는 역할 (선택)</label>
+            <input type="text" id="role" name="role" placeholder="예: 품질 관리, 데이터 분석가">
+        </div>
+        <!-- [핵심 수정] 관리자 코드 입력란과 피드백 메시지 div -->
+        <div class="form-group">
+            <label for="admin_code">관리자 코드 (선택)</label>
+            <input type="text" id="admin_code" name="admin_code" placeholder="관리자만 입력하세요">
+            <div id="admin-code-feedback" class="feedback-message"></div>
+        </div>
+        
+        <div class="form-group-terms">
+            <input type="checkbox" id="terms" name="terms" required>
+            <label for="terms">이용약관 및 개인정보 처리방침에 동의합니다.</label>
+        </div>
+        <div id="terms-feedback" class="feedback-message"></div>
+
+        <button type="submit" class="auth-btn">회원가입</button>
+    </form>
+    <div class="auth-switch">
+        <p>이미 계정이 있으신가요? <a href="{{ url_for('login') }}">로그인</a></p>
+    </div>
+</div>
+
+<script>
+$(function() {
+    // --- 유효성 검사 상태를 저장할 플래그 변수들 ---
+    let isUserIdAvailable = false;
+    let isPasswordLengthValid = false; // 👈 비밀번호 길이 유효성 플래그 추가
+    let isPasswordMatch = false;
+    let isEmailValid = false;
+    let isNameValid = false; // ✨ [새 플래그] 이름 유효성 플래그
+    let isEmailAvailable = false;   // 이메일 중복 유효성 플래그
+    let emailCheckTimeout; // 이메일 디바운싱 타이머
+    let adminCodeCheckTimeout; // 디바운싱 타이머
+
+    // --- 비밀번호 길이 규칙 정의 ---
+    const MIN_PASSWORD_LENGTH = 8;
+    const MAX_PASSWORD_LENGTH = 16;
+
+    // --- 1. 아이디 중복 확인 (기존과 동일) ---
+    $('#check-userid-btn').on('click', function() {
+        // ... (기존 코드 생략) ...
+        const userid = $('#userid').val();
+        const feedback = $('#userid-feedback');
+        if (userid.length < 4) {
+            feedback.text('아이디는 4자 이상 입력해주세요.').removeClass('available').addClass('unavailable');
+            isUserIdAvailable = false; return;
+        }
+        $.ajax({
+            url: '/check_userid', type: 'POST', contentType: 'application/json',
+            data: JSON.stringify({ userid: userid }),
+            success: function(response) {
+                if (response.available) {
+                    feedback.text('사용 가능한 아이디입니다.').removeClass('unavailable').addClass('available');
+                    isUserIdAvailable = true;
+                } else {
+                    feedback.text('이미 사용 중인 아이디입니다.').removeClass('available').addClass('unavailable');
+                    isUserIdAvailable = false;
+                }
+            }
+        });
+    });
+    $('#userid').on('input', function() {
+        $('#userid-feedback').text(''); isUserIdAvailable = false;
+    });
+    // 아이디 필드를 비운 채로 다른 곳을 클릭했을 때의 처리
+    $('#userid').on('focusout', function() {
+        const userid = $(this).val();
+        if (userid === '') {
+            $('#userid-feedback').text('아이디는 필수 입력 항목입니다.').removeClass('available').addClass('unavailable');
+            isUserIdAvailable = false;
+        }
+    });
+
+    // --- 2. 실시간 비밀번호 길이 검사 (✨ 새로 추가된 부분) ---
+    $('#password').on('input focusout', function(event) {
+        const password = $(this).val();
+        const length = password.length;
+        const feedback = $('#password-length-feedback');
+        
+        if (length === 0) {
+            // focusout 이벤트일 때만 "필수" 메시지 표시
+            if (event.type === 'focusout') {
+                feedback.text('비밀번호는 필수 입력 항목입니다.').removeClass('available').addClass('unavailable');
+            } else {
+                feedback.text('');
+            }
+            isPasswordLengthValid = false;
+        } else if (length < 8) {
+            feedback.text('비밀번호는 8자 이상이어야 합니다.').removeClass('available').addClass('unavailable');
+            isPasswordLengthValid = false;
+        } else if (length > 16) {
+            feedback.text('비밀번호는 16자를 초과할 수 없습니다.').removeClass('available').addClass('unavailable');
+            isPasswordLengthValid = false;
+        } else {
+            feedback.text('사용 가능한 비밀번호입니다.').removeClass('unavailable').addClass('available');
+            isPasswordLengthValid = true;
+        }
+    });
+
+    // 비밀번호 확인 필드에 대한 focusout 이벤트를 새로 추가
+    $('#password_confirm').on('focusout', function() {
+        if ($(this).val() === '' && $('#password').val() !== '') {
+            $('#password-feedback').text('비밀번호 확인은 필수 입력 항목입니다.').removeClass('available').addClass('unavailable');
+            isPasswordMatch = false;
+        }
+    });
+
+    // --- 3. 실시간 비밀번호 일치 검사 ---
+    $('#password, #password_confirm').on('input', function() {
+        const password = $('#password').val();
+        const passwordConfirm = $('#password_confirm').val();
+        const feedback = $('#password-feedback');
+
+        if (passwordConfirm === '') {
+            feedback.text(''); isPasswordMatch = false; return;
+        }
+        if (password === passwordConfirm) {
+            feedback.text('비밀번호가 일치합니다.').removeClass('unavailable').addClass('available');
+            isPasswordMatch = true;
+        } else {
+            feedback.text('비밀번호가 일치하지 않습니다.').removeClass('available').addClass('unavailable');
+            isPasswordMatch = false;
+        }
+    });
+
+    // --- 3. 이름 필드 유효성 검사 (✨ 중복 제거 및 정리된 최종 버전) ---
+    $('#name').on('input focusout', function(event) {
+        const name = $(this).val();
+        const feedback = $(this).siblings('.feedback-message');
+        const nameRegex = /^\p{L}+$/u;
+
+        if (name === '') {
+            if (event.type === 'focusout') {
+                feedback.text('이름은 필수 입력 항목입니다.').removeClass('available').addClass('unavailable');
+            } else {
+                feedback.text('');
+            }
+            isNameValid = false;
+            return;
+        }
+        if (nameRegex.test(name)) {
+            feedback.text('');
+            isNameValid = true;
+        } else {
+            feedback.text('이름은 문자로만 입력해주세요. (숫자, 특수문자, 공백 제외)').removeClass('available').addClass('unavailable');
+            isNameValid = false;
+        }
+    });
+
+    // --- 4. 실시간 이메일 형식 검사 (✨ focusout 이벤트 추가) ---
+    $('#email').on('input focusout', function(event) {
+        const email = $(this).val();
+        const feedback = $('#email-feedback');
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        if (email === '') {
+            // focusout 이벤트일 때만 "필수" 메시지 표시
+            if (event.type === 'focusout') {
+                feedback.text('이메일은 필수 입력 항목입니다.').removeClass('available').addClass('unavailable');
+            } else {
+                feedback.text('');
+            }
+            isEmailValid = false;
+            return;
+        }
+
+        if (emailRegex.test(email)) {
+            feedback.text('올바른 이메일 형식입니다.').removeClass('unavailable').addClass('available');
+            isEmailValid = true;
+        } else {
+            feedback.text('올바른 이메일 형식이 아닙니다.').removeClass('available').addClass('unavailable');
+            isEmailValid = false;
+        }
+    });
+
+    // --- 5. ✨ [핵심 수정] 실시간 이메일 형식 및 중복 검사 ---
+    $('#email').on('input focusout', function(event) {
+        const email = $(this).val();
+        const feedback = $('#email-feedback');
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        clearTimeout(emailCheckTimeout);
+
+        if (email === '') {
+            if (event.type === 'focusout') feedback.text('이메일은 필수 입력 항목입니다.').removeClass('available').addClass('unavailable');
+            else feedback.text('');
+            isEmailFormatValid = false;
+            isEmailAvailable = false;
+            return;
+        }
+
+        if (emailRegex.test(email)) {
+            isEmailFormatValid = true;
+            feedback.text('올바른 형식입니다. 중복 여부를 확인 중...').removeClass('unavailable available');
+            
+            emailCheckTimeout = setTimeout(() => {
+                $.ajax({
+                    url: '/check_email', // 새로 만든 API 호출
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ email: email }),
+                    success: function(response) {
+                        if (response.available) {
+                            feedback.text('사용 가능한 이메일입니다.').removeClass('unavailable').addClass('available');
+                            isEmailAvailable = true;
+                        } else {
+                            feedback.text('이미 사용 중인 이메일입니다.').removeClass('available').addClass('unavailable');
+                            isEmailAvailable = false;
+                        }
+                    }
+                });
+            }, 500);
+        } else {
+            feedback.text('올바른 이메일 형식이 아닙니다.').removeClass('available').addClass('unavailable');
+            isEmailFormatValid = false;
+            isEmailAvailable = false;
+        }
+    });
+
+    // --- 6. 실시간 관리자 코드 확인 ---
+    $('#admin_code').on('input', function() {
+        const code = $(this).val();
+        const feedback = $('#admin-code-feedback');
+        clearTimeout(adminCodeCheckTimeout); // 이전 타이머 취소
+
+        // 입력창이 비어있으면 메시지 숨김
+        if (code === '') {
+            feedback.text('');
+            return;
+        }
+
+        // 0.5초 디바운싱: 타이핑이 멈춘 후 0.5초 뒤에 서버에 요청
+        adminCodeCheckTimeout = setTimeout(() => {
+            $.ajax({
+                url: '/check_admin_code',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ admin_code: code }),
+                success: function(response) {
+                    if (response.valid) {
+                        feedback.text('관리자 코드가 확인되었습니다.').removeClass('unavailable').addClass('available');
+                    } else {
+                        feedback.text('올바르지 않은 관리자 코드입니다.').removeClass('available').addClass('unavailable');
+                    }
+                }
+            });
+        }, 500);
+    });
+
+    // --- 7. 최종 폼 제출 시 유효성 검사 ---
+    $('#register-form').on('submit', function(event) {
+        // 모든 필수 필드를 다시 한번 검사하여 피드백을 강제로 표시
+        if ($('#userid').val() === '') { $('#userid').trigger('focusout'); }
+        if ($('#password').val() === '') { $('#password').trigger('focusout'); }
+        if ($('#password_confirm').val() === '') { $('#password_confirm').trigger('focusout'); }
+        if ($('#name').val() === '') { $('#name').trigger('focusout'); }
+        if ($('#email').val() === '') { $('#email').trigger('focusout'); }
+        
+        let errorMessages = [];
+        if (!isUserIdAvailable) { errorMessages.push('아이디 중복 확인을 해주세요.'); }
+        if (!isPasswordLengthValid) { errorMessages.push('비밀번호 규칙(8~16자)을 확인해주세요.'); }
+        if (!isPasswordMatch) { errorMessages.push('비밀번호가 일치하지 않습니다.'); }
+        if (!isNameValid) { errorMessages.push('이름을 올바르게 입력해주세요.'); }
+        if (!isEmailFormatValid) { errorMessages.push('이메일 형식을 확인해주세요.'); }
+        else if (!isEmailAvailable) { errorMessages.push('이미 사용 중인 이메일입니다.'); } // 형식은 맞지만 중복된 경우
+        
+        // ✨ 이용약관 체크는 별도로 처리
+        let isTermsChecked = true;
+        if (!$('#terms').is(':checked')) {
+            $('#terms-feedback').text('이용약관에 동의해야 합니다.').addClass('unavailable');
+            isTermsChecked = false;
+        }
+
+        // ✨ alert를 띄울 오류가 있거나, 이용약관에 동의하지 않았으면 제출을 막음
+        if (errorMessages.length > 0 || !isTermsChecked) {
+            event.preventDefault(); // 폼 제출 중단
+
+            // ✨ errorMessages 배열에 내용이 있을 때만 alert를 띄움
+            if (errorMessages.length > 0) {
+                alert(errorMessages.join('\n'));
+            }
+        }
+    });
+
+    $('#terms').on('change', function() {
+        if ($(this).is(':checked')) {
+            $('#terms-feedback').text('').removeClass('unavailable');
+        }
+    });
+});
+</script>
+{% endblock %}

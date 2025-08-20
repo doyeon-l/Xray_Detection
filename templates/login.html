@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}로그인{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <h2>로그인</h2>
+    <p>X-Ray 이물 검출 시스템을 이용하려면 로그인하세요.</p>
+
+    <form method="POST" action="{{ url_for('login') }}" id="login-form" novalidate>
+        <div class="form-group">
+            <label for="userid">아이디</label>
+            <input type="text" id="userid" name="userid" value="{{ userid or '' }}" required>
+            <!-- 👇 아이디 피드백 메시지 div -->
+            <div class="feedback-message"></div>
+        </div>
+        <div class="form-group">
+            <label for="password">비밀번호</label>
+            <input type="password" id="password" name="password" required>
+            <!-- 👇 비밀번호 피드백 메시지 div -->
+            <div class="feedback-message"></div>
+        </div>
+        <button type="submit" class="auth-btn">로그인</button>
+    </form>
+    <div class="auth-switch">
+        <p>계정이 없으신가요? <a href="{{ url_for('register') }}">회원가입</a></p>
+    </div>
+</div>
+
+<script>
+$(function() {
+    // --- 실시간 필수 항목 검사 (focusout) ---
+    $('#userid, #password').on('focusout', function() {
+        const field = $(this);
+        const feedback = field.siblings('.feedback-message');
+        if (field.val() === '') {
+            feedback.text('필수 입력 항목입니다.').addClass('unavailable');
+        } else {
+            feedback.text('').removeClass('unavailable');
+        }
+    });
+
+    // --- 로그인 버튼 클릭 시 최종 검사 ---
+    $('#login-form').on('submit', function(event) {
+        let hasError = false;
+        
+        const useridField = $('#userid');
+        const passwordField = $('#password');
+
+        if (useridField.val() === '') {
+            useridField.siblings('.feedback-message').text('아이디를 입력해주세요.').addClass('unavailable');
+            hasError = true;
+        }
+        if (passwordField.val() === '') {
+            passwordField.siblings('.feedback-message').text('비밀번호를 입력해주세요.').addClass('unavailable');
+            hasError = true;
+        }
+
+        if (hasError) {
+            // 서버로 폼이 제출되는 것을 막음
+            event.preventDefault();
+        }
+    });
+});
+</script>
+{% endblock %}

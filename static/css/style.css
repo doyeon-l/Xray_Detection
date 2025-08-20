@@ -1,0 +1,1074 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans&display=swap');
+
+* {
+  margin: 0 auto;
+  padding: 0;
+  box-sizing: border-box;
+  text-decoration: none;
+  list-style: none;
+}
+
+html, body {
+  width: 100%;
+  overflow-x: hidden;
+  font-family: "Noto Sans", sans-serif;
+  font-weight: 400;
+  color: #333;
+}
+
+/*--------------------------------------base--------------------------------------------------*/
+
+/* 상단 고정 네비 바 */
+.site-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 70px;
+  background-color: rgba(20, 20, 20, 0.3);
+  transition: background-color 0.3s ease;
+  z-index: 10;
+}
+
+.site-header:hover {
+  background-color: rgba(255, 255, 255, 1);
+}
+
+.site-header .container {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between
+}
+
+.logo a {
+  display: inline-block;
+  cursor: pointer;
+  z-index: 20;
+  position: relative;
+}
+
+.logo img {
+  height: 100px;
+  display: block;
+  pointer-events: auto;
+}
+
+.main-nav {
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.main-nav > ul {
+  display: flex;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.main-nav a {
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 16px;
+  padding-right: 15px;
+  transition: color 0.3s ease;
+}
+
+.site-header:hover .main-nav a {
+  color: rgb(20, 20, 20);
+}
+
+footer{
+  background-color: #f8f9fa;
+  padding: 30px 0;
+  text-align: center;
+  font-size: 13px;
+  color: #6c757d;
+  margin-top: 50px;
+}
+footer p {
+  margin: 0 auto;
+}
+
+/*--------------------------------------index--------------------------------------------------*/
+/* 전체 배경 섹션 (Hero Section) */
+.main-hero {
+  background: url("/static/img/main.jpg") no-repeat center center;
+  background-size: cover;
+  height: 100vh;
+  width: 100%;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 50px;
+}
+
+/* 배경 위 텍스트를 위한 오버레이 */
+.hero-overlay {
+  background-color: rgba(0, 0, 0, 0.5); /* 어둡게 */
+  color: white;
+  padding: 40px;
+  border-radius: 5px;
+  text-align: center;
+}
+
+.hero-overlay h1 {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+}
+
+.hero-overlay p {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+/* 본문 차트 콘텐츠 */
+.dashboard-container {
+  background-color: white;
+  padding: 50px 30px;
+}
+
+
+/* 기존 스타일 유지 (차트, 테이블 등) */
+#charts { display: flex; gap: 30px; flex-wrap: wrap; justify-content: center; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+.thumbnail { cursor: pointer; width: 60px; height: 60px; object-fit: cover; }
+#list-container { height: 600px; overflow-y: scroll; border: 1px solid #ccc; }
+#image-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display:flex; justify-content: center; align-items: center; z-index: 1000; }
+#modal-img { max-width: 90%; max-height: 90%; }
+
+/* --- 대시보드 페이지 스타일 추가 --- */
+
+/* 헤더와 실시간 현황판을 묶는 영역 */
+.dashboard-header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-bottom: 1px solid #eee;
+  background-color: #919191;
+}
+.dashboard-header h2 {
+  padding: 15px;
+  color: white;
+}
+
+#realtime-status {
+  text-align: right;
+}
+
+#realtime-status h3 {
+  margin: 0 0 10px 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+#realtime-status p {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+#realtime-status p span{
+  padding-left:10px;
+}
+
+/* 차트들을 감싸는 그리드 레이아웃 */
+.dashboard-grid {
+  display: flex;
+  flex-direction: column; /* 세로로 배치 */
+  gap: 50px; /* 차트 사이의 간격 */
+  background-color: #eee;
+  padding-top: 30px;
+}
+
+/* 각 차트를 담는 컨테이너 */
+.chart-container {
+  height: 400px;
+  margin: 50px auto;  /* 가운데 정렬을 위해 auto 적용 */
+}
+
+/* 도넛 차트 컨테이너 */
+
+.chart-container.flex-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.chart-container.flex-row canvas {
+  flex: 0 0 50%; /* ← 더 좁게 (예: 60%) */
+  max-width: 800px; /* 고정 너비 제한 */
+  height: 400px; /* 고정 높이 */
+}
+.chart-container.flex-row #realtime-status {
+  flex: 0 0 40%;
+  padding-left: 20px;
+}
+/* ---------------각각의 차트 구역------------ */
+.chart-section {
+  padding: 50px;
+  margin: 60px auto;
+  border-radius: 12px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.05);
+  width: 95%;
+}
+/* 개별 배경색 */
+.daily-section,    
+.weekly-section,
+.monthly-section,
+.score-section, 
+.reclass-section  { 
+  background-color: #fff;
+}
+
+#dailyChart,
+#weeklyChart,
+#monthlyChart,
+#scoreChart,
+#reclassChart {
+  width: 60%;
+  height: 600px;
+}
+
+/* --- index.html 대시보드 컨트롤 스타일 추가 --- */
+.dashboard-controls {
+  text-align: left;
+  width: 100%;
+  margin-bottom: 50px;
+  padding: 15px 30px;
+  background-color: #919191;
+  color: white;
+  font-weight: 600;
+}
+.dashboard-controls span {
+  margin-right: 10px;
+  font-weight: bold;
+  font-size: 1rem;
+}
+
+.dashboard-controls input{
+  text-align: center;
+  margin: 0 10px;
+  padding: 3px 5px;
+  border: none;
+  border-radius: 5px;
+  color: #4b4b4b;
+  font-family: 'noto sans', sans-serif;
+  font-weight: 600;
+}
+
+/*--------------------------------------list--------------------------------------------------*/
+.list-section{
+  margin: 0 auto;
+  padding: 120px 30px 70px 30px;
+}
+
+.list_title {
+  position: relative;
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin: 0 auto;
+  padding: 15px 0 45px 0;
+  text-align: center;
+}
+.list_title::before {
+  content: "";
+  position: absolute;
+  top: 0; /* h2 위쪽에 붙이기 */
+  left: 50%; /* 왼쪽 정렬 */
+  transform: translateX(-50%); /* 자기 너비의 절반만큼 왼쪽으로 이동 */
+  width: 30px; /* 막대기 길이 */
+  height: 3px; /* 막대기 두께 */
+  background-color: #333; /* 막대기 색상 */
+  border-radius: 1px;
+}
+
+.controls{
+  text-align: center;
+  width: 100%;
+  padding: 15px 30px;
+  background-color: #919191;
+  color: white;
+  font-weight: 700;
+  margin: 0 auto;
+}
+
+.controls select{
+  padding: 2px;
+  border-radius: 3px;
+  border: none;
+  background-color: #f8f9fa;
+  color: #333;
+  font-size: 0.9rem;
+  font-family: 'Noto Sans', sans-serif;
+}
+
+#upload_modal{
+  width: 100%;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  display: flex;
+  align-items: center;        /* 세로 중앙 */
+  justify-content: flex-start;/* 왼쪽 정렬 */
+  gap: 0;                     /* flex 기본 간격 제거 */
+  padding: 15px 0;             /* 높이만 살짝 */
+  border-bottom: 1px solid #ddd;
+}
+
+/* 내부 기본 여백 전부 리셋 */
+#upload_modal > *{
+  margin: 0 !important;
+  flex: 0 0 auto;
+}
+
+/* 필요한 최소 간격만 직접 지정 */
+#upload_modal h3{ margin-right: 5px; padding-right: 10px; font-size: 1rem; font-style: bold; }
+#upload_modal input{ 
+  margin:0 15px !important;
+  padding: 3px 5px;
+  border: 1px solid #ccc;
+}
+
+/* 파일 인풋이 과하게 커 보이면(브라우저별) 살짝 정리 */
+#upload_modal input[type="file"]{
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  border-bottom: 2px solid #919191;
+}
+
+.note-btn {
+  padding: 3px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.note-btn:hover {
+  background-color: #5a6268;
+}
+.icon-16 {
+  width: 16px;
+  height: 20px;
+  display: inline-block;
+  vertical-align: middle;
+}
+.export-btn {
+  padding: 5px 10px;
+  background-color: #17a2b8;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  margin-left: 10px;
+}
+.export-btn:hover {
+  background-color: #138496;
+}
+
+/*--------------------------------------공용--------------------------------------------------*/
+
+button{
+  text-align: center;
+  padding: 6px 18px;
+  background-color: #3d3d3d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+#upload_modal input[type="file"]::file-selector-button{
+  text-align: center;
+  padding: 3px 10px;
+  background-color: #919191;
+  color: white;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+  margin-right: 5px;
+}
+
+button:hover{
+  background-color: #555;
+}
+#upload_modal input[type="file"]::file-selector-button:hover{
+  background-color: #555;
+}
+
+input{
+  text-align: center;
+  margin: 0 10px;
+  padding: 3px 5px;
+  border: none;
+  border-radius: 5px;
+  color: #4b4b4b;
+  font-family: 'noto sans', sans-serif;
+  font-weight: 600;
+}
+
+/*--------------------------------------auth (login/register)--------------------------------------------------*/
+.auth-container {
+  max-width: 450px;
+  margin: 150px auto 100px;
+  padding: 40px;
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+  text-align: center;
+}
+
+.auth-container h2 {
+  font-size: 1.8rem;
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.auth-container p {
+  color: #6c757d;
+  margin-bottom: 30px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #495057;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-family: 'Noto Sans', sans-serif;
+  text-align: left; /* 입력 필드는 왼쪽 정렬 */
+  font-weight: normal;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #919191;
+  box-shadow: 0 0 0 2px rgba(145, 145, 145, 0.25);
+}
+
+.auth-btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 1.1rem;
+  margin-top: 10px;
+  background-color: #3d3d3d; /* 기존 버튼 색상과 통일 */
+}
+
+.auth-btn:hover {
+  background-color: #555;
+}
+
+.auth-switch {
+  margin-top: 25px;
+  font-size: 0.9rem;
+}
+
+.auth-switch a {
+  color: #3d3d3d;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* Flash 메시지 스타일 */
+.flash-message {
+  padding: 15px;
+  margin-bottom: 20px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.flash-message.success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+.flash-message.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+/* 네비게이션 바 사용자 이름 스타일 */
+.nav-user {
+  font-size: 16px;
+  cursor: pointer;
+  display: inline-flex; /* ✨ 아이콘과 세로 중앙 정렬을 위해 flex로 변경 */
+  align-items: center;
+}
+
+/* ✨ CSS로 만드는 세모 아이콘 */
+.nav-user::after {
+  content: ''; /* 가상 요소는 content 속성이 필수 */
+  width: 0;
+  height: 0;
+  margin-left: 8px; /* 텍스트와 아이콘 사이 간격 */
+
+  /* 세모 모양 만들기 (border 속성 활용) */
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid white; /* 이 색상이 아이콘 색상이 됨 */
+
+  transition: all 0.2s ease-in-out; /* 부드러운 애니메이션 효과 */
+}
+
+/* 헤더에 마우스를 올렸을 때 아이콘 색상 변경 */
+.site-header:hover .nav-user::after {
+  border-top-color: #333;
+}
+
+.site-header:hover .nav-user {
+  color: rgb(20, 20, 20);
+}
+
+/*--------------------------------------auth enhancements--------------------------------------------------*/
+
+.form-group-inline {
+  display: flex;
+  align-items: flex-end; /* label, input, button 수직 정렬 */
+  gap: 10px;
+}
+.form-group-inline .input-wrapper {
+  flex-grow: 1; /* 입력창이 남은 공간을 모두 차지하도록 */
+}
+.form-group-inline button {
+  padding: 10px 15px;
+  flex-shrink: 0; /* 버튼 크기 고정 */
+  height: 47px; /* input 높이와 맞춤 */
+}
+
+.feedback-message {
+  font-size: 0.9em;
+  font-weight: bold;
+  height: 20px;
+  margin-top: 5px; /* 입력창과 메시지 사이의 간격 조정 */
+  margin-bottom: 10px;
+  text-align: left;
+}
+.feedback-message.available {
+  color: #28a745; /* Green */
+}
+.feedback-message.unavailable {
+  color: #dc3545; /* Red */
+}
+
+.form-divider {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 30px 0;
+}
+
+.form-group-terms {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  gap: 8px;
+}
+.form-group-terms input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+.form-group-terms label {
+  margin: 0;
+  font-weight: normal;
+  color: #6c757d;
+}
+
+/*--------------------------------------profile page--------------------------------------------------*/
+
+/* readonly 속성이 있는 입력창 스타일 */
+input[readonly] {
+  background-color: #e9ecef; /* 회색 배경 */
+  cursor: not-allowed; /* 마우스 커서 변경 */
+}
+
+/* 폼 안의 섹션 제목 (예: 비밀번호 변경) */
+.form-section-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: #333;
+}
+.form-section-desc {
+  font-size: 0.9rem;
+  color: #6c757d;
+  margin-top: 0;
+  margin-bottom: 25px;
+}
+
+/*--------------------------------------UI/UX Enhancements & Dropdown--------------------------------------------------*/
+
+/* 로그인 실패 시 form에 추가될 스타일 */
+.form-error .form-group input {
+  border-color: #dc3545; /* 빨간색 테두리 */
+  animation: shake 0.5s; /* 흔들리는 애니메이션 적용 */
+}
+
+/* 흔들리는 애니메이션 정의 */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  50% { transform: translateX(5px); }
+  75% { transform: translateX(-5px); }
+}
+
+
+/*--------------------------------------Dropdown Menu (Final Code)--------------------------------------------------*/
+
+.nav-item-dropdown {
+  position: relative;
+}
+
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background-color: white;
+  min-width: 140px;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.15);
+  border-radius: 8px;
+  z-index: 10;
+  list-style: none;
+  padding: 8px 0;
+  margin-top: 15px;
+  border: 1px solid #eee;
+}
+
+.dropdown-menu.show {
+  display: flex;
+  flex-direction: column;
+}
+
+.dropdown-menu li {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.dropdown-menu a {
+  color: #333 !important;
+  padding: 10px 20px;
+  text-decoration: none;
+  display: block;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.dropdown-menu a:hover {
+  background-color: #f5f5f5;
+}
+
+.site-header:hover .dropdown-menu {
+    background-color: white;
+}
+
+/*--------------------------------------Toast Notification--------------------------------------------------*/
+#toast-notification {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(to bottom right, #17a2b8 20%, #467a85, #555);
+  color: white;
+  padding: 15px 40px 15px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  
+  /* ✨ 애니메이션을 위한 초기 상태 (숨김) */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s, visibility 0.3s, top 0.3s;
+}
+
+/* ✨ JavaScript로 'show' 클래스가 추가될 때의 상태 (보임) */
+#toast-notification.show {
+  top: 100px; /* 살짝 아래로 내려오면서 나타나는 효과 */
+  opacity: 1;
+  visibility: visible;
+}
+
+#toast-message {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+#toast-close {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 5px;
+}
+#toast-close:hover {
+  color: white;
+}
+
+/*--------------------------------------Admin Page--------------------------------------------------*/
+.admin-container {
+  max-width: 1200px;
+  margin: 120px auto 50px;
+  padding: 20px;
+}
+.admin-container h2 {
+  text-align: center;
+  margin-bottom: 30px;
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.admin-table th, .admin-table td {
+  border: 1px solid #ddd;
+  padding: 10px;
+  text-align: center;
+}
+.admin-table th {
+  background-color: #f8f9fa;
+}
+.btn-delete {
+  padding: 5px 10px;
+  border-radius: 4px;
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+.btn-delete { background-color: #dc3545; }
+
+/* 관리자 뱃지 스타일 */
+.admin-badge {
+  color: #17a2b8; /* 포인트 색상 */
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-right: 5px;
+}
+
+.delete-account-section {
+  margin-top: 30px;
+  text-align: center;
+  padding: 20px;
+  border: 1px solid #f5c6cb;
+  border-radius: 8px;
+  background-color: #f8d7da;
+}
+.delete-account-section p {
+  color: #721c24;
+  font-size: 0.9em;
+  margin-bottom: 15px;
+}
+.btn-delete {
+  background-color: #dc3545;
+  border: none;
+  padding: 10px 20px;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+.btn-delete:hover {
+  background-color: #c82333;
+}
+
+.btn-promote {
+  background-color: #28a745; /* 초록색 */
+  padding: 5px 10px;
+  border-radius: 4px;
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+.btn-demote {
+  background-color: #ffc107; /* 노란색 */
+  padding: 5px 10px;
+  border-radius: 4px;
+  color: #333; /* 어두운 글씨 */
+  border: none;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+/* 현재 로그인한 관리자 행을 강조하는 스타일 */
+.current-admin-row {
+  background-color: #e7f3ff; /* 연한 파란색 배경 */
+  border-left: 3px solid #007bff; /* 왼쪽에 파란색 테두리 */
+  border-right: 3px solid #007bff; /* 오른쪽에 파란색 테두리 */
+}
+.current-admin-row td {
+    font-weight: bold; /* 글씨를 살짝 굵게 */
+}
+
+/* '(현재 계정)' 텍스트 스타일 */
+.self-indicator {
+    font-size: 0.9em;
+    color: #555;
+    font-weight: normal;
+}
+
+/* ================================== 반응형 웹 디자인 ================================== */
+
+@media (max-width: 992px) {
+  /* ------------------ [공통] 헤더 & 네비게이션 ------------------ */
+  .site-header {
+    height: auto; /* 내용에 따라 높이 자동 조절 */
+  }
+  .site-header .container {
+    flex-direction: column; /* 로고와 메뉴를 세로로 배치 */
+    height: auto;
+    padding: 10px;
+    gap: 5px; /* 로고와 메뉴 사이 간격 */
+  }
+  .main-nav > ul {
+    justify-content: center; 
+    width: 100%;
+    padding-top: 0;
+    align-items: center;
+  }
+  .main-nav a {
+    padding: 8px 12px; /* 메뉴 터치 영역 확보 */
+    font-size: 15px;
+  }
+  .logo img {
+    height: 80px; /* 로고 크기 살짝 줄이기 */
+  }
+  /* 드롭다운 메뉴 위치 조정 */
+  .dropdown-menu {
+    right: 50%;
+    transform: translateX(50%);
+    margin-top: 10px;
+  }
+  
+  /* ------------------ [index.html] 대시보드 페이지 ------------------ */
+  .hero-overlay h1 {
+    font-size: 2rem; /* 제목 폰트 크기 줄이기 */
+  }
+  .hero-overlay p {
+    font-size: 1rem; /* 부제목 폰트 크기 줄이기 */
+  }
+
+  /* 대시보드: 기간 선택 컨트롤 */
+  .dashboard-controls {
+    display: flex;
+    flex-direction: column; /* 세로로 쌓이도록 변경 */
+    align-items: stretch; /* 항목들을 꽉 채우도록 정렬 */
+    gap: 10px; /* 항목 사이의 간격 추가 */
+    padding: 15px;
+  }
+  .dashboard-controls input,
+  .dashboard-controls button {
+    width: 100%; /* 입력창과 버튼의 너비를 100%로 설정 */
+    margin: 0; /* 불필요한 마진 제거 */
+  }
+  .dashboard-controls span {
+    text-align: center; /* "기간 선택 :" 텍스트 중앙 정렬 */
+  }
+
+  /* 대시보드: 실시간 현황과 도넛 차트 */
+  .chart-container.flex-row {
+    display: flex; /* flexbox 레이아웃 적용 */
+    flex-direction: column; /* 세로로 쌓이도록 변경 */
+    height: auto; /* 내용에 따라 높이가 자동으로 조절되도록 */
+    gap: 20px; /* 실시간 현황과 차트 사이 간격 */
+    align-items: center; /* 가운데 정렬 */
+  }
+
+  /* 실시간 현황 텍스트 스타일 */
+  #realtime-status {
+    text-align: center; /* 텍스트 중앙 정렬 */
+    padding-left: 0; /* 불필요한 왼쪽 여백 제거 */
+    width: 100%;
+  }
+
+  /* 도넛 차트(canvas) 스타일 */
+  .chart-container.flex-row canvas {
+    flex-basis: auto; /* flex 비율 초기화 */
+    max-width: 100%; /* 너비가 컨테이너를 넘어가지 않도록 */
+    height: 280px !important; /* 모바일에서 적절한 높이로 강제 지정 */
+  }
+
+  /* 대시보드: 전체 차트 컨테이너 및 섹션 */
+  .chart-container {
+    height: 350px; /* 모바일에서 차트 높이를 적절하게 조절 */
+    margin: 20px auto;
+  }
+  .chart-section {
+    padding: 20px 10px; /* 상하, 좌우 패딩 줄이기 */
+    width: 100%;
+    margin: 30px auto;
+  }
+  /* 차트 캔버스 너비 100%로 강제 */
+  #dailyChart, #weeklyChart, #monthlyChart, #scoreChart, #reclassChart {
+    width: 100% !important; 
+  }
+
+  /* ------------------ [list.html] 목록 페이지 ------------------ */
+  .list-section {
+    padding: 100px 15px 50px 15px; /* 상단 여백 줄이고 좌우 여백 통일 */
+  }
+
+  /* 목록: 검색 조건 영역 */
+  /* 검색 컨트롤 전체를 감싸는 부모(.controls) 스타일 */
+  .controls {
+    display: flex; /* 플렉스박스 레이아웃 활성화 */
+    flex-wrap: wrap; /* 공간이 부족하면 자식 요소들이 자동으로 줄바꿈됨 */
+    justify-content: flex-start; /* 항목들을 왼쪽부터 정렬 */
+    align-items: center; /* 항목들을 세로 중앙에 보기 좋게 정렬 */
+    gap: 10px 15px; /* 세로 10px, 가로 15px 간격을 주어 '옹기종기' 문제 해결 */
+    padding: 20px; /* 컨테이너 자체에 충분한 안쪽 여백을 추가 */
+    border-radius: 5px; /* 모서리를 살짝 둥글게 */
+  }
+  /* 컨트롤 내부의 모든 자식 요소(input, button 등)의 기본 마진 제거 */
+  .controls > * {
+    margin: 0;
+  }
+  /* 개별 컨트롤 요소들의 마진 초기화 */
+  .controls input,
+  .controls select,
+  .controls button,
+  .controls a {
+    margin: 0;
+  }
+  /* 파일명 검색 입력창이 가변적으로 너비를 가지도록 설정 */
+  .controls input[type="text"]#search_term {
+    flex-grow: 1; /* 핵심: 남는 수평 공간을 이 입력창이 모두 차지하도록 함 */
+    min-width: 180px; /* 화면이 좁아져도 최소한의 너비를 유지 */
+  }
+
+  /* 버튼들은 자동으로 늘어나지 않도록 설정 */
+  .controls button,
+  .controls a.export-btn {
+    flex-grow: 0; /* 너비가 늘어나지 않도록 고정 */
+    flex-shrink: 0; /* 너비가 줄어들지 않도록 고정 */
+  }
+
+  /* 목록: 이미지 업로드 영역 */
+  #upload_modal {
+    flex-direction: column; /* 세로로 쌓기 */
+    align-items: stretch; /* 너비 100%로 통일 */
+    gap: 12px; /* 요소 간 간격 */
+    padding: 15px;
+  }
+  #upload_modal h3 {
+    text-align: center; /* 제목 중앙 정렬 */
+    margin-right: 0;
+  }
+  #upload_modal input {
+    width: 100%;
+    margin: 0 !important; /* 강제로 마진 제거 */
+  }
+
+  /* 목록: 테이블 가로 스크롤 생성 */
+  #list-container {
+      overflow-x: auto; /* 테이블 내용이 넘칠 경우 가로 스크롤 생성 */
+  }
+  #list-container table {
+      width: 100%;
+      min-width: 800px; /* 테이블의 최소 너비를 지정해 강제로 스크롤바 생성 */
+  }
+
+  /* ------------------ [auth] 로그인/회원가입 페이지 ------------------ */
+  .auth-container {
+    margin: 100px auto 50px;
+    padding: 20px;
+    width: 90%; /* 화면 너비에 맞게 조절 */
+    box-shadow: none; /* 그림자 효과 제거 */
+    border: 1px solid #eee; /* 얇은 테두리로 변경 */
+  }
+  .auth-container h2 {
+    font-size: 1.6rem;
+  }
+}
+
+
+/* --- 화면 너비가 480px 이하일 때 (더 작은 모바일 기기) --- */
+@media (max-width: 480px) {
+    /* 전체적으로 폰트 크기를 살짝 줄여 가독성 확보 */
+    html, body {
+        font-size: 14px;
+    }
+    
+    .hero-overlay h1 {
+        font-size: 1.5rem;
+    }
+
+    /* 회원가입/로그인 폼 그룹 간격 조절 */
+    .form-group-inline {
+        flex-direction: column;
+        align-items: stretch; /* 라벨, 인풋, 버튼이 모두 꽉 차도록 */
+        gap: 8px;
+    }
+    .form-group-inline button {
+        height: auto;
+        padding: 12px; /* 다른 버튼들과 높이를 맞춤 */
+    }
+    
+    /* 토스트 알림 위치 조정 */
+    #toast-notification {
+        width: 90%;
+        top: 60px;
+        padding: 12px 35px 12px 15px;
+    }
+    #toast-notification.show {
+        top: 80px;
+    }
+}
+
+/* --- 화면 너비가 480px 이하일 때 (작은 모바일 기기) --- */
+@media (max-width: 480px) {
+    /* 전체적으로 폰트 크기를 살짝 줄여 가독성 확보 */
+    html, body {
+        font-size: 14px;
+    }
+    
+    .hero-overlay h1 {
+        font-size: 1.5rem;
+    }
+
+    /* 회원가입/로그인 폼 그룹 간격 조절 */
+    .form-group-inline {
+        flex-direction: column;
+        align-items: stretch; /* 라벨, 인풋, 버튼이 모두 꽉 차도록 */
+    }
+    .form-group-inline button {
+        height: auto;
+        padding: 12px; /* 다른 버튼들과 높이를 맞춤 */
+    }
+}

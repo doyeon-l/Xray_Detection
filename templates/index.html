@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+
+{% block title %}분류 통계 대시보드{% endblock %}
+
+{% block content %}
+<!-- Hero 영역: 배경 이미지만 가득 차게 -->
+<div class="main-hero">
+  <div class="hero-overlay">
+    <h1>X-Ray 이물질 검출 대시보드</h1>
+    <p>스크롤해서 통계를 확인하세요</p>
+  </div>
+</div>
+
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <h2>이미지 분류 통계</h2>
+    </div>
+
+<div class="dashboard-grid">
+    <!-- 20250813 이도연 수정 시작 (기간 선택과 실시간 검사 현황 순서 바꿈.) -->
+    <div class="chart-container large flex-row">
+        <div id="realtime-status">
+            <h3>실시간 검사 현황</h3>
+            <p>총 검사: <span id="total-scans">...</span> | 정상: <span id="total-good">...</span> | <span style="color:red;">불량: <span id="total-bad">...</span></span></p>
+        </div>
+        <canvas id="overallChart"></canvas>
+    </div>
+
+    <div class="dashboard-controls">
+        <span>기간 선택 : </span>
+        <input type="text" id="start_date_dash" readonly> ~ 
+        <input type="text" id="end_date_dash" readonly>
+        <button id="search_btn_dash">조회</button>
+    </div>
+    <!-- 20250813 이도연 수정 끝 -->
+    
+    <div class="chart-section daily-section"><div class="chart-container"><canvas id="dailyChart"></canvas></div></div>
+    <div class="chart-section weekly-section"><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div>
+    <div class="chart-section monthly-section"><div class="chart-container"><canvas id="monthlyChart"></canvas></div></div>
+    <div class="chart-section score-section"><div class="chart-container"><canvas id="scoreChart"></canvas></div></div>
+    <div class="chart-section reclass-section"><div class="chart-container"><canvas id="reclassChart"></canvas></div></div>
+</div>
+</div>
+<script>
+$(function() {
+    let chartInstances = {}; // 모든 차트 객체를 관리
+
+    // --- 차트 렌더링/업데이트 함수 ---
+    function renderOrUpdateChart(canvasId, chartConfig) {
+        if (chartInstances[canvasId]) {
+            chartInstances[canvasId].destroy();
+        }
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        chartInstances[canvasId] = new Chart(ctx, chartConfig);
+    }
+
+    // --- 데이터 패칭 및 차트 생성 함수들 ---
+    function fetchAndRender(url, canvasId, title, labelKey, params = {}) {
+        $.getJSON(url, params, function(data) {
+            const labels = data.map(d => d[labelKey]);
+            const good = data.map(d => d.good_count || d.ok_count || 0);
+            const bad = data.map(d => d.bad_count || d.ng_count || 0);
+            const rate = data.map(d => d.bad_rate || d.ng_rate || 0);
+            
+            renderOrUpdateChart(canvasId, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: '정상', data: good, backgroundColor: 'green' },
+                        { label: '불량', data: bad, backgroundColor: 'red' },
+                        { label: '불량률(%)', data: rate, type: 'line', borderColor: 'blue', yAxisID: 'y1' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5,
+                    plugins: { title: { display: true, text: title, font: { size: 16 } } },
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: '건수' } },
+                        y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: '불량률(%)' } }
+                    }
+                }
+            });
+        });
+    }
+
+    function updateOverallStatus() {
+        $.getJSON('/stats/overall', function(data) {
+            $('#total-scans').text(data.total_count || 0);
+            $('#total-bad').text(data.bad_count || 0);
+            $('#total-good').text(data.good_count || 0);
+            
+            renderOrUpdateChart('overallChart', {
+                type: 'doughnut',
+                data: {
+                    labels: ['정상 (GOOD)', '불량 (BAD)'],
+                    datasets: [{
+                        data: [data.good_count, data.bad_count],
+                        backgroundColor: ['#28a745', '#dc3545'],
+                        borderColor: '#fff', borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5,
+                    plugins: {
+                        title: { display: true, text: '📈 전체 정품/불량 비율', font: { size: 16 } },
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+        });
+    }
+
+    function renderScoreChart() {
+        $.getJSON('/stats/score_distribution', data => {
+            const labels = data.map(d => d.score);
+            const counts = data.map(d => d.count);
+        
+            /*
+            let cumulative = 0;
+            const cumulativeCounts = counts.map(c => cumulative += c);
+
+            renderOrUpdateChart('scoreChart', {
+                type: 'bar',  // 기본은 bar로 두고 라인만 따로 지정
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: '개별 건수',
+                            data: counts,
+                            backgroundColor: '#ffc107',
+                            yAxisID: 'y',
+                        },
+                        {
+                            type: 'line',
+                            label: '누적 건수',
+                            data: cumulativeCounts,
+                            borderColor: '#007bff',
+                            backgroundColor: 'rgba(0, 123, 255, 0.2)',
+                            fill: true,
+                            tension: 0.3,
+                            yAxisID: 'y1',
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '📊 개별 건수 + 누적 건수 (혼합 차트)',
+                            font: { size: 16 }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'Score' }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            position: 'left',
+                            title: { display: true, text: '개별 건수' }
+                        },
+                        y1: {
+                            beginAtZero: true,
+                            position: 'right',
+                            grid: { drawOnChartArea: false },
+                            title: { display: true, text: '누적 건수' }
+                        }
+                    }
+                }
+            });
+        */
+            
+            renderOrUpdateChart('scoreChart', {
+                type: 'bar',
+                data: { labels: labels, datasets: [{ label: '판별 건수', data: counts, backgroundColor: '#ffc107' }] },
+                options: { responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5, plugins: { title: { display: true, text: '🧠 모델 신뢰도(Score) 분포', font: { size: 16 } } }, scales: { y: { beginAtZero: true, title: { text: '건수' } } } }
+            });
+            
+        });        
+    }
+    
+    function renderReclassChart() {
+        $.getJSON('/stats/reclassification_trend', data => {
+            const labels = data.map(d => d.std_date);
+            const counts = data.map(d => d.re_count);
+            renderOrUpdateChart('reclassChart', {
+                type: 'line',
+                data: { labels: labels, datasets: [{ label: '수정 건수', data: counts, borderColor: '#6f42c1', fill: false }] },
+                options: { responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5, plugins: { title: { display: true, text: '✍️ 일간 재분류 횟수', font: { size: 16 } } }, scales: { y: { beginAtZero: true, title: { text: '건수' } } } }
+            });
+        });
+    }
+    
+    function updateDashboardCharts() {
+        const params = {
+            start_date: $('#start_date_dash').val(),
+            end_date: $('#end_date_dash').val()
+        };
+        fetchAndRender('/stats/daily', 'dailyChart', '📆 일간 통계', 'std_date', params);
+        fetchAndRender('/stats/weekly', 'weeklyChart', '📅 주간 통계', 'week_label'); // 주간/월간은 아직 기간조회 미적용
+        fetchAndRender('/stats/monthly', 'monthlyChart', '🗓️ 월간 통계', 'year_months');
+    }
+    
+    // --- 초기화 및 이벤트 바인딩 ---
+    $("#start_date_dash, #end_date_dash").datepicker({ dateFormat: 'yy-mm-dd', maxDate: 0 });
+    const today = new Date();
+    const aMonthAgo = new Date();
+    aMonthAgo.setMonth(today.getMonth() - 1);
+    $("#start_date_dash").datepicker("setDate", aMonthAgo);
+    $("#end_date_dash").datepicker("setDate", today);
+
+    $('#search_btn_dash').click(updateDashboardCharts);
+    
+    updateOverallStatus();
+    setInterval(updateOverallStatus, 10000);
+    
+    updateDashboardCharts();
+    renderScoreChart();
+    renderReclassChart();
+});
+</script>
+{% endblock %}

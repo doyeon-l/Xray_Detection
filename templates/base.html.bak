@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- block title: 각 페이지의 제목이 여기에 들어옵니다 -->
+<title>{% block title %}{% endblock %} - X-Ray 이물 검출 시스템</title>
+
+<!-- Favicon 설정 시작 -->
+<link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/favicon/apple-touch-icon.png') }}">
+<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon/favicon-32x32.png') }}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/favicon/favicon-16x16.png') }}">
+<link rel="icon" href="{{ url_for('static', filename='img/favicon/favicon.ico') }}" type="image/x-icon">
+
+<!-- 공통 CSS 파일 연결 -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+<!-- 기존 페이지들에서 사용하던 라이브러리들을 여기에 모아둡니다 -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+<script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+
+<!-- 각 페이지별로 추가할 head 내용이 있다면 여기에 들어옵니다 -->
+{% block head %}{% endblock %}
+</head>
+<body>
+<header>
+<div class="header-container">
+<a href="/" class="logo">
+<img src="{{ url_for('static', filename='img/fubao_logo.png') }}" alt="Fubao Logo">
+<!-- <span>X-Ray 이물 검출</span> -->
+</a>
+<nav>
+<a href="/">통계 대시보드</a>
+<a href="/list">상세 목록</a>
+</nav>
+</div>
+</header>
+<main class="main-container">
+    <!-- block content: 각 페이지의 실제 내용이 여기에 삽입됩니다 -->
+    {% block content %}{% endblock %}
+</main>
+
+<footer>
+    <div class="footer-container">
+        <p>&copy; 2025 YOLO Project Team Fubao. All Rights Reserved.</p>
+        <p>X-Ray 분말유크림 이물질 검출 프로젝트</p>
+    </div>
+</footer>
+</body>
+</html>

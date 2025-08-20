@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>이미지 E-book 뷰어</title>
+  <style>
+    body { text-align: center; background-color: #f0f0f0; margin: 0; }
+    .container { position: relative; max-width: 800px; margin: auto; }
+    img { width: 100%; max-height: 90vh; object-fit: contain; }
+    .nav-button {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 2em;
+      background-color: rgba(0,0,0,0.3);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      cursor: pointer;
+      z-index: 10;
+    }
+    #prevBtn { left: 0; }
+    #nextBtn { right: 0; }
+  </style>
+</head>
+<body>
+
+  <h2>📖 이미지 E-book 뷰어</h2>
+  <div class="container">
+    <button id="prevBtn" class="nav-button">⟨</button>
+    <img id="ebookImage" src="">
+    <button id="nextBtn" class="nav-button">⟩</button>
+  </div>
+
+  <script>
+    const images = {{ images|tojson }};
+    let currentIndex = 0;
+    const imgElement = document.getElementById('ebookImage');
+    const showImage = (index) => {
+      imgElement.src = "/static/" + images[index];
+    };
+
+    document.getElementById('prevBtn').onclick = () => {
+      if (currentIndex > 0) currentIndex--;
+      showImage(currentIndex);
+    };
+
+    document.getElementById('nextBtn').onclick = () => {
+      if (currentIndex < images.length - 1) currentIndex++;
+      showImage(currentIndex);
+    };
+
+    // 초기 이미지 표시
+    showImage(currentIndex);
+  </script>
+
+</body>
+</html>

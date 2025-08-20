@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>분류 결과 목록</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+  <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+  <style>
+    body { font-family: Arial; margin: 20px; }
+    .controls { margin-bottom: 10px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    .thumbnail { cursor: pointer; width: 60px; height: 60px; object-fit: cover; }    
+    #list-container { height: 600px; overflow-y: scroll; border: 1px solid #ccc; }
+    #image-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 1000; }
+    #modal-img { max-width: 90%; max-height: 90%; }    
+  </style>
+</head>
+<body>
+  <h2>📂 분류 이미지 목록</h2>
+
+  <div class="controls">
+    기준일: 
+    <input type="text" id="from_date" readonly> ~ 
+    <input type="text" id="to_date" readonly>
+    <select id="class_filter">
+      <option value="">전체</option>
+      <option value="1">GOOD</option>
+      <option value="0">BAD</option>
+    </select>
+    <button id="search_btn">🔍 검색</button>
+    <button id="delete-btn">🗑️ 선택 삭제</button>
+    <!--<button id="upload_btn">📤 업로드</button>-->
+  </div>
+  <div id="upload_modal">
+    <h3>📤 이미지 업로드</h3>
+    기준일: <input type="text" id="upload_std_date" readonly>
+    <input type="file" id="upload_files" multiple>
+    <button id="confirm_upload">업로드</button>
+  </div>
+<br/>
+  <div>총 건수: <span id="total_count">0</span></div>
+  <div id="list-container">
+    <table>
+        <thead>
+        <tr>
+            <th><input type="checkbox" id="check_all"></th>
+            <th>이미지</th>
+            <th>파일명</th>
+            <!--<th>학습 유형</th>-->
+            <th>검출 기준일</th>
+            <th>불량 여부</th>
+            <th>데이터 업로드 일시</th>            
+        </tr>
+        </thead>
+        <tbody id="result_body" ></tbody>
+    </table>
+  </div>
+
+  <div id="image-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+background-color: rgba(0,0,0,0.8); z-index:1000; justify-content:center; align-items:center;">
+  <img id="modal-img" src="" style="max-width:90%; max-height:90%;" />
+  </div>
+
+  <script>
+    $(function() {
+      const today = new Date();
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+
+      function formatDate(date) {
+        return date.toISOString().slice(0,10);
+      }
+
+      $("#from_date, #to_date, #upload_std_date").datepicker({
+        dateFormat: 'yy-mm-dd',
+        maxDate: 0,
+        onSelect: function(dateText) {
+          /*
+          const from = $("#from_date").datepicker('getDate');
+          const to = $("#to_date").datepicker('getDate');
+          if (from && to) {
+            const days = (to - from) / (1000 * 60 * 60 * 24);
+            if (days > 31) {
+              alert("최대 조회 기간은 1달입니다.");
+              $("#to_date").datepicker("setDate", from);
+            }
+          }
+          */
+        }          
+      });
+
+      $("#from_date").datepicker("setDate", yesterday);
+      $("#to_date").datepicker("setDate", today);
+      $("#upload_std_date").datepicker("setDate", today);
+
+      function loadList() {
+        const from = $('#from_date').val().replace(/-/g, '');
+        const to = $('#to_date').val().replace(/-/g, '');
+        const cls = $('#class_filter').val();
+
+        $.get('/api/list', { std_date: '', yolo_class: cls }, function(data) {
+          const filtered = data.filter(item => item.std_date >= from && item.std_date <= to);
+          $('#result_body').empty();
+          $('#total_count').text(filtered.length);
+
+          $.each(filtered, function(_, row) {
+            const format_date = row.std_date;
+          
+            const formatted_std_date = `${format_date.substring(0,4)}-${format_date.substring(4,6)}-${format_date.substring(6,8)}` ;
+          
+            const tr = `
+              <tr>
+                <td><input type="checkbox" class="row_chk" data-id="${row.id}"></td>
+                <td><img src="${row.image_path}" class="thumbnail" data-full="${row.image_path}" style="width:60px; height:60px; cursor:pointer;"></td>
+                <td>${row.org_image_name}</td>
+                <td>${formatted_std_date}</td>
+                <td>${row.yolo_class == '1' ? 'GOOD' : '<b style="color:red">BAD</b>'}</td>
+                <td>${row.created_at}</td>
+              </tr>`;
+            $('#result_body').append(tr);
+          });
+        });
+      }
+
+      loadList();
+
+      $('#search_btn').click(function() {
+        /*const from = $("#from_date").datepicker('getDate');
+        const to = $("#to_date").datepicker('getDate');
+        if (from && to) {
+            const days = (to - from) / (1000 * 60 * 60 * 24);
+            if (days > 31) {
+              alert("최대 조회 기간은 1달입니다.");
+              $("#to_date").datepicker("setDate", from);
+            }
+        }
+      */
+        loadList();
+      });
+
+      $('#check_all').click(function() {
+        $('.row_chk').prop('checked', $(this).is(':checked'));
+      });
+
+      $('#delete-btn').click(function() {
+        const ids = $('.row_chk:checked').map((_, el) => $(el).data('id')).get();
+        if (ids.length == 0) return alert("선택된 항목이 없습니다.");
+
+        if (confirm("정말 삭제하시겠습니까?")) {
+          $.ajax({
+            url: '/api/delete',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ ids }),
+            success: loadList
+          });
+        }
+      });
+
+      /*$('#upload_btn').click(function() {
+        $('#upload_modal').show();
+      });
+    */
+      $('#confirm_upload').click(function() {
+        const formData = new FormData();
+        const files = $('#upload_files')[0].files;
+        const stdDate = $('#upload_std_date').val().replace(/-/g, '');
+        formData.append('std_date', stdDate);
+        for (let f of files) formData.append('files', f);
+
+        $.ajax({
+          url: '/upload',
+          type: 'POST',
+          data: formData,
+          contentType: false,
+          processData: false,
+          success: function() {
+            alert("업로드 완료");
+            $('#upload_modal').hide();
+            loadList();
+          }
+        });
+      });
+    });
+// 썸네일 클릭 시 전체 이미지 보기
+$(document).on('click', '.thumbnail', function () {
+  const fullSrc = $(this).data('full');
+  $('#modal-img').attr('src', fullSrc);
+  $('#image-modal').fadeIn();
+});
+
+// 모달 클릭 시 닫기
+$('#image-modal').click(function () {
+  $(this).fadeOut();
+});    
+  </script>
+</body>
+</html>
