@@ -9,20 +9,23 @@ import cv2
 import uuid
 import os
 import torch
+import numpy as np
 from torchvision import transforms
+import torch.nn.functional as nn
 from PIL import Image
 from ultralytics import YOLO
-
+from pytorch_msssim import ms_ssim # pip install pytorch-msssim
 from efficientnet_pytorch import EfficientNet  # pip install efficientnet_pytorch
 from model.model import EfficientNetAutoencoder # 👈 직접 작성한 모델 클래스 import 필요
 from model.classifier import EfficientNetClassifier
 # from torchvision.models import efficientnet_b2, EfficientNet_B2_Weights
 from model.model import MSSSIMLoss
-
 from functools import wraps
 from flask import abort
 
 app = Flask(__name__)
+uploadPath = './static/upload'
+modelPath = './model'
 
 # 💡 세션과 flash 메시지를 사용하기 위한 시크릿 키 설정 (실제 서비스에서는 더 복잡한 키 사용)
 app.secret_key = 'your-secret-key-for-fubao-project'
@@ -80,22 +83,6 @@ def load_user(user_id):
                     company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'])
     return None
 
-# EfficientNet 모델 로드 함수 정의
-def load_efficientnet_classifier_model(model_path='model/classifier_effnetb0.pth'):
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    full_path = os.path.join(base_dir, model_path)
-    model = EfficientNetClassifier(num_classes=2) 
-    state_dict = (torch.load(full_path, map_location=torch.device('cpu')))
-    new_state_dict = {}
-    for k, v in state_dict.items():
-        if k.startswith('classifier.1'):
-            new_k = k.replace('classifier.1', 'classifier')
-        else:
-            new_k = k
-        new_state_dict[new_k] = v
-    model.load_state_dict(new_state_dict)
-    model.eval()
-    return model
 
 def predict_with_classifier(model, input_tensor):
     model.eval()
@@ -103,8 +90,7 @@ def predict_with_classifier(model, input_tensor):
         output = model(input_tensor)
         probabilities = torch.softmax(output, dim=1) # 예측 확률
         predicted_class_index = torch.argmax(probabilities).item()
-        
-    score = probabilities[0, 1].item() # GOOD 클래스(인덱스 1)의 확률을 점수로 사용
+        score = probabilities[0, 1].item() # GOOD 클래스(인덱스 1)의 확률을 점수로 사용
 
     # 인덱스 0은 BAD, 1은 GOOD이라고 가정
     if predicted_class_index == 1:
@@ -112,6 +98,15 @@ def predict_with_classifier(model, input_tensor):
     else:
         return "BAD", score
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+classifier = EfficientNetClassifier(num_classes=2).to(device)
+state_dict = torch.load(os.path.join(modelPath, 'eff_from_yolo_infer.pth'), map_location=device)
+classifier.load_state_dict(state_dict)
+classifier.eval()  # 평가 모드
+
+model = EfficientNetAutoencoder(model_version='b2', output_size=224).to(device)
+model.load_state_dict(torch.load(os.path.join(modelPath, 'autoencoder_effnetb2_img224_batch16_epoch100_M80_SS20.pth'), map_location=device))
+model.eval()
 # YOLO 모델 로드 함수 정의
 def load_model(model_path='model/best.pt'):
     model = YOLO(model_path)
@@ -121,35 +116,33 @@ def load_model(model_path='model/best.pt'):
 def get_db_connection():
     return pymysql.connect(
         host='127.0.0.1',
-        user='root2',
-        password='root12345',
+        # user='root2',
+        # password='root12345',
+        user='root',
+        password='root123',
         db='mysql',
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
 
 
-# 모델 로드
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = EfficientNetAutoencoder(model_version='b2', output_size=224).to(device)
-model.load_state_dict(torch.load('model/autoencoder_effnetb2_img224_batch16_epoch100_M80_SS20.pth', map_location=device))
-model.eval()
 
 # 이미지 전처리
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-])
-
-
-# 이미지 전처리 (EfficientNet용)
-def preprocess_image(image):
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+def get_transform(model_gb: str):
+    if model_gb == 'S':  # 지도학습 (B3)
+        size = 300
+    elif model_gb == 'U':  # 비지도학습 (B2)
+        size = 224
+    else:
+        size = 224  # fallback
+    return transforms.Compose([
+        transforms.Resize((size, size)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
     ])
-    return transform(image).unsqueeze(0)
+
+
 
 # YOLO로 객체 크롭 함수
 def crop_image_with_yolo(image_path, yolo_model):
@@ -171,7 +164,8 @@ def crop_image_with_yolo(image_path, yolo_model):
 # 여기까지 함수 정의 끝
 
 # 전역 변수로 모델 로드
-efficientnet_model = load_efficientnet_classifier_model()
+efficientnet_classifier_model = classifier
+efficientnet_autoencoder_model = model
 yolo_model = load_model()
 
 
@@ -184,106 +178,119 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# 비지도학습 모델이용 이미지 업로드 및 추론 처리
+
+# 지도,비지도 학습 모델 업로드 
 @app.route('/upload', methods=['POST'])
 def upload():
+    global efficientnet_classifier_model_b3, efficientnet_autoencoder_model
     std_date = request.form.get('std_date')
+    model_gb = request.form.get('model_gb', 'S')  # 기본값은 'S'
     files = request.files.getlist('files')
+    results = []
 
     for file in files:
         if file and allowed_file(file.filename):
             org_image_name = file.filename
-
-            # 저장
             filename = datetime.now().strftime("%Y%m%d_%H%M%S_") + str(uuid.uuid4())[:8] + '.jpg'
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            filepath = os.path.join(uploadPath, filename)
             file.save(filepath)
 
-            # 추론
-            image = Image.open(filepath).convert('RGB')
-            input_tensor = transform(image).unsqueeze(0).to(device)
-
-            with torch.no_grad():
-                # squeeze(0)를 제거하여 [1, 클래스 수] 형태의 2D 텐서를 유지
-                output = model(input_tensor).cpu()
-
-            # 2D 텐서의 두 번째 차원(dim=1)을 기준으로 softmax 계산
-            prob = torch.softmax(output, dim=1)
+            # 원본 이미지 로드
+            original_img = Image.open(filepath).convert('RGB')
             
-            # 가장 확률이 높은 클래스(label)와 해당 확률(score)을 추출
-            score, label_tensor = torch.max(prob, dim=1)
-            label = label_tensor.item()
-            final_score = score.item()
+            # YOLO 모델로 박스 감지
+            yolo_results = yolo_model(filepath)
+            
+            # 최종 분류 결과와 점수 변수 초기화
+            effnet_class = 'UNKNOWN'
+            yolo_class = '0' # 기본값은 '0' (BAD)
+            score = 0.0
 
-            # DB 저장
+            # 💡 수정: YOLO 결과의 클래스 이름을 직접 확인하여 yolo_class 및 effnet_class 결정
+            yolo_final_class = None
+            if hasattr(yolo_results[0], 'boxes') and hasattr(yolo_results[0].boxes, 'cls'):
+                for cls_tensor in yolo_results[0].boxes.cls:
+                    class_name = yolo_results[0].names[int(cls_tensor)]
+                    if class_name == 'BAD':
+                        yolo_final_class = 'BAD'
+                        break  # 'BAD'가 감지되면 바로 종료
+                    elif class_name == 'GOOD':
+                        yolo_final_class = 'GOOD'
+            
+            # =====================
+            # 지도학습 (EfficientNet-B3 분류)
+            # =====================
+            if model_gb == 'S':
+                # YOLO가 GOOD 또는 BAD를 감지했으면 그 결과를 사용
+                if yolo_final_class:
+                    effnet_class = yolo_final_class
+                    yolo_class = '1' if effnet_class == 'GOOD' else '0'
+                else:
+                    # YOLO가 아무것도 감지하지 못했으면 B3 모델 사용
+                    transform = get_transform('S') 
+                    input_img_tensor = transform(original_img).unsqueeze(0).to(device)
+                    effnet_class_raw, score = predict_with_classifier(efficientnet_classifier_model_b3, input_img_tensor)
+                    
+                    # 💡 최종 예측 결과 반전 로직 추가
+                    if effnet_class_raw == 'GOOD':
+                        effnet_class = 'BAD'
+                    else:
+                        effnet_class = 'GOOD'
+                        
+                    yolo_class = '1' if effnet_class == 'GOOD' else '0'
+
+                print(f"[지도학습] 파일: {filename}, YOLO 클래스(박스 유무): {yolo_class}, 최종 예측 클래스: {effnet_class}, 점수: {score}")
+
+            # =====================
+            # 비지도학습 (EfficientNet 오토인코더)
+            # =====================
+            elif model_gb == 'U':
+                reconstruction_error = None # 💡 reconstruction_error 변수를 None으로 초기화
+                if yolo_final_class:
+                    effnet_class = yolo_final_class
+                    yolo_class = '1' if effnet_class == 'GOOD' else '0'
+                else:
+                    transform = get_transform('U')
+                    input_tensor = transform(original_img).unsqueeze(0).to(device)
+                    with torch.no_grad():
+                        reconstructed_tensor = efficientnet_autoencoder_model(input_tensor)
+                        reconstruction_error = nn.mse_loss(reconstructed_tensor, input_tensor).item()
+                    score = max(0.0, 1.0 - reconstruction_error)
+                    RECONSTRUCTION_THRESHOLD = 0.05
+                    effnet_class_raw = 'GOOD' if reconstruction_error < RECONSTRUCTION_THRESHOLD else 'BAD'
+                    
+                    # 💡 최종 예측 결과 반전 로직 추가
+                    if effnet_class_raw == 'GOOD':
+                        effnet_class = 'BAD'
+                    else:
+                        effnet_class = 'GOOD'
+                        
+                    yolo_class = '1' if effnet_class == 'GOOD' else '0'
+
+                print(f"[비지도학습] 파일: {filename}, YOLO 클래스(박스 유무): {yolo_class}, 최종 예측 클래스: {effnet_class}, 점수: {score}, 재구성 오류: {reconstruction_error}")
+
+            # =====================
+            # 공통: 데이터베이스 저장 로직 (단 한번 실행)
+            # =====================
             conn = get_db_connection()
             with conn.cursor() as cursor:
-                # score 컬럼에 final_score 값을 저장
                 cursor.execute("""
-                    INSERT INTO classified_objects (std_date, image_path, image_name, org_image_name, yolo_class, effnet_class, score)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """, (std_date, filepath, filename, org_image_name, label, label, final_score))
-
+                    INSERT INTO classified_objects 
+                        (std_date, model_gb, image_path, image_name, org_image_name, yolo_class, effnet_class, score)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (std_date, model_gb, filepath, filename, org_image_name, yolo_class, effnet_class, score))
                 conn.commit()
-                conn.close()
+            conn.close()
+            
+            # 결과를 results 리스트에 추가 (클라이언트에 응답하기 위함)
+            results.append({
+                'filename': filename,
+                'yolo_class': yolo_class,
+                'effnet_class': effnet_class,
+                'score': score
+            })
 
-    return render_template('list.html')
-
-# 이미지 업로드 및 YOLO, EfficientNet을 이용한 객체 분류
-@app.route('/upload2', methods=['POST'])
-def upload2_files():
-    global efficientnet_model, yolo_model  # 전역 변수 사용 선언
-
-    try:
-        std_date = request.form.get('std_date')
-        files = request.files.getlist('files')
-        results = []
-
-        for file in files:
-            filename = file.filename
-            save_path = f'static/upload/{filename}'
-            file.save(save_path)
-
-            # YOLO로 이미지 크롭
-            cropped_images = crop_image_with_yolo(save_path, yolo_model)
-
-            for idx, cropped_img in enumerate(cropped_images):
-                input_tensor = preprocess_image(cropped_img)
-
-                # 지도학습 로직
-                effnet_class, score = predict_with_classifier(efficientnet_model, input_tensor)
-                yolo_class = '1' if effnet_class == 'GOOD' else '0'
-
-                cropped_save_path = f'static/upload/cropped_{idx}_{filename}'
-                cropped_img.save(cropped_save_path)
-
-                conn = get_db_connection()
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("""
-                            INSERT INTO classified_objects (std_date, image_path, image_name, org_image_name, yolo_class, effnet_class, score)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        """, (std_date, cropped_save_path, f'cropped_{idx}_{filename}', filename, yolo_class, effnet_class, score))
-                        conn.commit()
-                        results.append({
-                            'filename': filename,
-                            'cropped_filename': f'cropped_{idx}_{filename}',
-                            'yolo_class': yolo_class,
-                            'effnet_class': effnet_class,
-                            'score': score
-                        })
-                except pymysql.MySQLError as e:
-                    conn.rollback()
-                    results.append({'filename': filename, 'status': 'error', 'message': str(e)})
-                finally:
-                    conn.close()
-
-        return jsonify({ 'status': 'success', 'uploaded_results': results })
-        #return render_template('list.html')
-
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-        #return render_template('list.html')
+    return jsonify({'status': 'success', 'results': results})
 
 @app.route('/')
 def index():
@@ -300,6 +307,7 @@ def api_list():
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     yolo_class = request.args.get('yolo_class')
+    model_gb = request.args.get('model_gb')  # 지도학습/비지도학습 선택
     search_term = request.args.get('search_term')
     sort_by = request.args.get('sort_by', 'id')
     sort_order = request.args.get('sort_order', 'DESC')
@@ -315,14 +323,19 @@ def api_list():
     params = []
 
     if from_date:
-        query += " AND std_date >= %s"
-        params.append(from_date)
+        from_date_dt = datetime.strptime(from_date, "%Y%m%d").strftime("%Y-%m-%d 00:00:00")
+        query += " AND created_at >= %s"
+        params.append(from_date_dt)
     if to_date:
-        query += " AND std_date <= %s"
-        params.append(to_date)
+        to_date_dt = datetime.strptime(to_date, "%Y%m%d").strftime("%Y-%m-%d 23:59:59")
+        query += " AND created_at <= %s"
+        params.append(to_date_dt)
     if yolo_class in ('0', '1'):
         query += " AND yolo_class = %s"
         params.append(yolo_class)
+    if model_gb in ('S', 'U'):
+        query += " AND model_gb = %s"
+        params.append(model_gb)
     if search_term:
         query += " AND org_image_name LIKE %s"
         params.append(f"%{search_term}%")
@@ -338,6 +351,7 @@ def api_list():
         cursor.execute(query, params)
         result = cursor.fetchall()
     conn.close()
+
     return jsonify(result)
 
 @app.route('/api/export', methods=['GET'])
@@ -453,7 +467,7 @@ def stats_daily():
     end_date_str = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
     start_date = datetime.strptime(end_date_str, '%Y-%m-%d')
     start_date_str = request.args.get('start_date', (start_date - timedelta(days=30)).strftime('%Y-%m-%d'))
-    
+    model_gb = request.args.get('model_gb', 'S')
     query = """
         WITH RECURSIVE date_seq AS (
             SELECT %s AS dt
@@ -467,12 +481,12 @@ def stats_daily():
             SUM(CASE WHEN co.yolo_class = '0' THEN 1 ELSE 0 END) AS bad_count,
             ROUND(IFNULL(SUM(CASE WHEN co.yolo_class = '0' THEN 1 ELSE 0 END) / NULLIF(COUNT(co.id), 0) * 100, 0), 2) AS bad_rate
         FROM date_seq ds
-        LEFT JOIN classified_objects co ON STR_TO_DATE(co.std_date, %s) = ds.dt AND co.del_yn = 'N'
+        LEFT JOIN classified_objects co ON STR_TO_DATE(co.std_date, %s) = ds.dt AND co.del_yn = 'N' AND co.model_gb = %s
         GROUP BY ds.dt ORDER BY ds.dt
     """
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute(query, (start_date_str, end_date_str, '%Y%m%d', '%Y%m%d'))
+        cursor.execute(query, (start_date_str, end_date_str, '%Y%m%d', '%Y%m%d', model_gb))
         result = cursor.fetchall()
     conn.close()
     return jsonify(result)
@@ -482,7 +496,7 @@ def stats_weekly():
     end_date_str = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
     end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
     start_date_str = request.args.get('start_date', (end_date - timedelta(weeks=8)).strftime('%Y-%m-%d'))
-    
+    model_gb = request.args.get('model_gb', 'S')
     query = """
         SELECT
             YEARWEEK(STR_TO_DATE(std_date, %s), 1) AS year_week,
@@ -491,13 +505,13 @@ def stats_weekly():
             SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) AS ng_count,
             ROUND(IFNULL(SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) / COUNT(id) * 100, 0), 2) AS ng_rate
         FROM classified_objects
-        WHERE del_yn = 'N' AND STR_TO_DATE(std_date, %s) BETWEEN %s AND %s
+        WHERE del_yn = 'N' AND model_gb = %s AND STR_TO_DATE(std_date, %s) BETWEEN %s AND %s
         GROUP BY year_week
         ORDER BY year_week
     """
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute(query, ('%Y%m%d', '%Y%m%d', start_date_str, end_date_str))
+        cursor.execute(query, ('%Y%m%d', model_gb, '%Y%m%d', start_date_str, end_date_str))
         data = cursor.fetchall()
         # week_label을 Python에서 생성
         for i, row in enumerate(data):
@@ -510,6 +524,7 @@ def stats_monthly():
     end_date_str = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
     end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
     start_date_str = request.args.get('start_date', (end_date - timedelta(days=180)).strftime('%Y-%m-%d'))
+    model_gb = request.args.get('model_gb', 'S')
 
     query = """
         SELECT
@@ -519,32 +534,37 @@ def stats_monthly():
             SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) AS bad_count,
             ROUND(IFNULL(SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) / COUNT(id) * 100, 0), 2) AS bad_rate
         FROM classified_objects
-        WHERE del_yn = 'N' AND STR_TO_DATE(std_date, %s) BETWEEN %s AND %s
+        WHERE del_yn = 'N' AND model_gb = %s AND STR_TO_DATE(std_date, %s) BETWEEN %s AND %s
         GROUP BY year_months
         ORDER BY year_months
     """
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute(query, ('%Y%m%d', '%Y-%m', '%Y%m%d', start_date_str, end_date_str))
+        cursor.execute(query, ('%Y%m%d', '%Y-%m', model_gb, '%Y%m%d', start_date_str, end_date_str))
         result = cursor.fetchall()
     conn.close()
     return jsonify(result)
 
 @app.route('/stats/score_distribution')
 def stats_score_distribution():
+    model_gb = request.args.get('model_gb', 'S')
+
     conn = get_db_connection()
     with conn.cursor() as cursor:
         cursor.execute("""
             SELECT round(score, 3) AS score, COUNT(*) count FROM classified_objects
+			WHERE del_yn = 'N' AND model_gb = %s
             GROUP BY round(score, 3)
             ORDER BY score
-        """)
+        """, (model_gb,))
         result = cursor.fetchall()
     conn.close()
     return jsonify(result)
 
 @app.route('/stats/reclassification_trend')
 def stats_reclassification_trend():
+    model_gb = request.args.get('model_gb', 'S')
+
     conn = get_db_connection()
     with conn.cursor() as cursor:
         # 일간 재분류 횟수 (최근 7일)
@@ -557,29 +577,32 @@ def stats_reclassification_trend():
                 WHERE dt < CURDATE() -- DATE('2025-01-10')
             )
             SELECT
-                DATE_FORMAT(ds.dt, '%Y%m%d') AS std_date,
+                DATE_FORMAT(ds.dt, %s) AS std_date,
                 IFNULL(SUM(CASE WHEN IFNULL(co.is_reclassified, 0) AND DEL_YN != 'Y' THEN 1 ELSE 0 END), 0) AS re_count
             FROM
             date_seq ds
             LEFT JOIN classified_objects co
-            ON DATE_FORMAT(co.modified_at, '%Y%m%d') = DATE_FORMAT(ds.dt, '%Y%m%d')
+            ON DATE_FORMAT(co.modified_at, %s) = DATE_FORMAT(ds.dt, %s) AND co.model_gb = %s
             GROUP BY ds.dt
             ORDER BY ds.dt
-        """)
+        """, ('%Y%m%d', '%Y%m%d', '%Y%m%d', model_gb,))
         result = cursor.fetchall()
     conn.close()
     return jsonify(result)
     
 @app.route('/stats/overall')
 def stats_overall():
+    model_gb = request.args.get('model_gb', 'S')
+
     conn = get_db_connection()
     with conn.cursor() as cursor:
         cursor.execute("""
             SELECT COUNT(*) as total_count,
                    SUM(CASE WHEN yolo_class = '1' THEN 1 ELSE 0 END) as good_count,
                    SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) as bad_count
-            FROM classified_objects WHERE del_yn = 'N'
-        """)
+            FROM classified_objects WHERE del_yn = 'N' AND model_gb = %s
+        """, (model_gb,))
+
         result = cursor.fetchone()
     conn.close()
     return jsonify(result)

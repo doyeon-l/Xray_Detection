@@ -16,6 +16,8 @@
     .note-btn { padding: 3px 6px; font-size: 0.8rem; background-color: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer;}
     .note-btn:hover { background-color: #5a6268; }
     .note-text { font-size: 0.9em; color: #555; }
+	#image-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 1000;}
+    #modal-img { max-width: 90%; max-height: 90%; }
 </style>
 {% endblock %}
 
@@ -25,6 +27,7 @@
   
   <div class="controls">
     기준일: <input type="text" id="from_date" readonly> ~ <input type="text" id="to_date" readonly>
+	<select id="model_filter"><option value="S">지도학습</option><option value="U">비지도학습</option></select> <!--add2 지도,비지도 선택 -->
     <select id="class_filter"><option value=""> 전체</option><option value="1">GOOD</option><option value="0">BAD</option></select>
     &nbsp;파일명: <input type="text" id="search_term" placeholder="검색할 파일명 입력...">
     <button id="search_btn">검색</button>
@@ -34,6 +37,11 @@
 
   <div id="upload_modal">
     <h3>이미지 업로드</h3>
+	<!--add2 지도,비지도 선택 -->
+    <select id ="upload_model_gb">
+      <option value ="S">지도학습</option>
+      <option value ="U">비지도학습</option>  
+    </select>
     기준일:
     <input type="text" id="upload_std_date" readonly>
     <input type="file" id="upload_files" multiple>
@@ -82,6 +90,7 @@
       $("#from_date").datepicker("setDate", aMonthAgo);
       $("#to_date").datepicker("setDate", today);
       $("#upload_std_date").datepicker("setDate", today);
+      $("#from_date, #to_date, #upload_std_date").css('cursor', 'pointer');
 
       // --- 데이터 로드 및 테이블 렌더링 함수 ---
       function loadList() {
@@ -89,6 +98,7 @@
           from_date: $('#from_date').val().replace(/-/g, ''),
           to_date: $('#to_date').val().replace(/-/g, ''),
           yolo_class: $('#class_filter').val(),
+		      model_gb: $('#model_filter').val(), // 지도학습/비지도학습 선택
           search_term: $('#search_term').val(),
           sort_by: sortBy,
           sort_order: sortOrder
@@ -121,7 +131,7 @@
                 <td><img src="${imagePath}" class="thumbnail" data-full="${imagePath}"></td>
                 <td>${row.org_image_name}</td>
                 <td>${formattedDate}</td>
-                <td>${row.yolo_class == '1' ? 'GOOD' : '<b style="color:red">BAD</b>'}</td>
+                <td>${Number(row.yolo_class) === 1 ? '<b style="color:blue">GOOD</b>' : '<b style="color:red">BAD</b>'}</td>
                 <td>${row.created_at}</td>
                 <td>
                   <button class="note-btn" data-id="${row.id}" data-note="${row.note || ''}" aria-label="메모 열기">
@@ -249,9 +259,12 @@
       });
       
       $('#confirm_upload').on('click', function () {
+		    const formData = new FormData();
         const files = $('#upload_files')[0].files;
         const stdDate = $('#upload_std_date').val().replace(/-/g, '');
-
+		    const modelGb = $('#upload_model_gb').val(); // S: 지도학습, U: 비지도학습 
+        if (files.length === 0) return alert("업로드할 파일을 선택하세요.", 'info');
+        
         if (!stdDate) {
           alert('기준일을 선택하세요.');
           return;
@@ -262,21 +275,23 @@
           return;
         }
 
-        const formData = new FormData();
         formData.append('std_date', stdDate);
+        formData.append('model_gb', modelGb); //formData에 model_gb 추가
         for (let i = 0; i < files.length; i++) {
           formData.append('files', files[i]);
         }
 
         $.ajax({
-          url: '/upload2',
+          url: '/upload',
           type: 'POST',
           data: formData,
+          contentType: false,
           processData: false,
           contentType: false,
           success: function (response) {
             if (response.status === 'success') {
               alert('이미지 업로드가 완료되었습니다.');
+			  $('#model_filter').val(modelGb); // 업로드 후 모델 종류 필드 업데이트
               loadList();
             } else {
               alert('업로드 중 오류 발생: ');

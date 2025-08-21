@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torchvision import transforms
-from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
+from torchvision.models import efficientnet_b3, EfficientNet_B3_Weights
 from PIL import Image
 import os
 
@@ -9,16 +9,22 @@ import os
 class EfficientNetClassifier(nn.Module):
     def __init__(self, num_classes=2):
         super().__init__()
-        weights = EfficientNet_B0_Weights.DEFAULT
-        efficientnet = efficientnet_b0(weights=weights)
+        efficientnet = efficientnet_b3(weights=None)
 
+        # features 그대로 사용
         self.features = efficientnet.features
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.classifier = nn.Linear(1280, num_classes)
+
+        in_features = efficientnet.classifier[1].in_features
+        # Dropout + Linear 그대로 복원
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=0.3, inplace=True),
+            nn.Linear(in_features, num_classes)
+        )
 
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
+        x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x
