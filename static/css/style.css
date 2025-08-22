@@ -601,10 +601,15 @@ input{
 
 /*--------------------------------------profile page--------------------------------------------------*/
 
-/* readonly 속성이 있는 입력창 스타일 */
-input[readonly] {
+/* readonly 속성이 있는 입력창 스타일 (수정) */
+input[readonly]:not(.datepicker-input) {
   background-color: #e9ecef; /* 회색 배경 */
-  cursor: not-allowed; /* 마우스 커서 변경 */
+  cursor: not-allowed;       /* 마우스 커서 변경 */
+}
+
+#start_date_dash[readonly],
+#end_date_dash[readonly] {
+    cursor: pointer !important; /* 마우스 커서를 손가락 모양으로 강제 변경 */
 }
 
 /* 폼 안의 섹션 제목 (예: 비밀번호 변경) */
