@@ -15,6 +15,9 @@
 <!-- 공통 CSS 파일 연결 -->
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
+<!-- 🚀 [신규] Font Awesome 아이콘 라이브러리 추가 -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
 <!-- 기존 페이지들에서 사용하던 라이브러리들을 여기에 모아둡니다 -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -25,6 +28,17 @@
 {% block head %}{% endblock %}
 </head>
 <body>
+  <!-- 🚀 [신규] 파일 업로드 진행률 표시를 위한 로딩 오버레이 -->
+  <div id="upload-progress-overlay">
+    <div class="progress-box">
+      <div class="spinner"></div>
+      <p id="progress-text">업로드 중...</p>
+      <div class="progress-bar-container">
+        <div id="progress-bar"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ✨ [새로 추가] 토스트 알림을 위한 HTML 구조 -->
     <div id="toast-notification">
         <span id="toast-message"></span>
@@ -53,6 +67,7 @@
                       <!-- ✨ [핵심 수정 2] 관리자일 경우 '회원 관리' 메뉴 항목 추가 -->
                       {% if current_user.is_admin %}
                           <li><a href="{{ url_for('admin_dashboard') }}">회원 관리</a></li>
+                          <li><a href="{{ url_for('model_management') }}">모델 관리</a></li>
                       {% endif %}
                       <li><a href="{{ url_for('profile') }}">계정 관리</a></li>
                       <li><a href="{{ url_for('logout') }}">로그아웃</a></li>
@@ -90,59 +105,49 @@
 
   <script>
     $(document).ready(function() {
-      // --- ✨ 토스트 알림창 기능 ---
-      function showToast(message) {
+      // --- ✨ 토스트 알림창 기능을 범용 함수로 변경 ---
+      function showToast(message, type = 'info') {
+        const toast = $('#toast-notification');
+        toast.removeClass('success error'); // 기존 클래스 초기화
+
+        if (type === 'success') toast.addClass('success');
+        else if (type === 'error') toast.addClass('error');
+
         $('#toast-message').text(message);
-        $('#toast-notification').addClass('show');
-        // 3초 후에 자동으로 사라지게 함
-        setTimeout(function() {
-          $('#toast-notification').removeClass('show');
-        }, 3000);
+        toast.addClass('show');
+
+        setTimeout(() => { toast.removeClass('show'); }, 3000);
       }
 
-      // 토스트 닫기 버튼 클릭 이벤트
-      $('#toast-close').on('click', function() {
-        $('#toast-notification').removeClass('show');
-      });
+      $('#toast-close').on('click', () => { $('#toast-notification').removeClass('show'); });
 
-      // 특정 카테고리의 flash 메시지가 있으면 토스트를 띄움
-      const loginSuccessMsg = $('.flash-message.login_success');
-      if (loginSuccessMsg.length > 0) {
-        showToast(loginSuccessMsg.text());
-      }
-      const logoutSuccessMsg = $('.flash-message.logout_success');
-      if (logoutSuccessMsg.length > 0) {
-        showToast(logoutSuccessMsg.text());
-      }
-      const registerSuccessMsg = $('.flash-message.register_success');
-      if (registerSuccessMsg.length > 0) {
-        showToast(registerSuccessMsg.text());
-      }
+      // --- ✨ [핵심 추가] 이 함수를 다른 스크립트에서 쓸 수 있도록 전역 변수로 만듭니다. ---
+      window.showToast = showToast;
 
-      // 👇 [핵심 추가] 프로필 수정 성공 메시지를 감지하는 블록을 추가합니다.
-      const profileSuccessMsg = $('.flash-message.profile_success');
-      if (profileSuccessMsg.length > 0) {
-        showToast(profileSuccessMsg.text());
-      }
+      // --- 기존 Flash 메시지 처리 로직 (이제 showToast 함수를 사용) ---
+      const flashMessages = {
+          'login_success': { type: 'success' },
+          'register_success': { type: 'success' },
+          'profile_success': { type: 'success' },
+          'logout_success': { type: 'info' },
+          'login_error': { type: 'error' }
+      };
 
-      // 👇 [핵심 추가] 로그인 '오류' 메시지를 감지하는 블록을 추가합니다.
-      const loginErrorMsg = $('.flash-message.login_error');
-      if (loginErrorMsg.length > 0) {
-          // 1. 기존처럼 토스트 메시지는 그대로 보여줍니다.
-          showToast(loginErrorMsg.text());
+      for (const className in flashMessages) {
+          const msgElement = $(`.flash-message.${className}`);
+          if (msgElement.length > 0) {
+              const config = flashMessages[className];
+              showToast(msgElement.text(), config.type);
 
-          // 2. [핵심 추가] login.html에 있는 #login-form에 .form-error 클래스를 추가합니다.
-          //    이 코드가 실행되는 순간, CSS에 정의된 대로 입력창이 흔들리고 테두리가 빨개집니다.
-          $('#login-form').addClass('form-error');
-
-          // 3. [선택 사항: UX 개선] 애니메이션이 끝난 후(0.5초 뒤) 클래스를 다시 제거하여
-          //    사용자가 다시 타이핑할 때 빨간 테두리가 사라지게 만듭니다.
-          setTimeout(function() {
-              $('#login-form').removeClass('form-error');
-          }, 500); // 500ms = 0.5초
+              // 로그인 에러 시 애니메이션 효과 추가
+              if (className === 'login_error') {
+                  $('#login-form').addClass('form-error');
+                  setTimeout(() => { $('#login-form').removeClass('form-error'); }, 500);
+              }
+          }
       }
 
-      // --- 드롭다운 메뉴 클릭 이벤트 처리 ---
+      // --- 드롭다운 메뉴 및 로고 이벤트 처리 (기존과 동일) ---
       $('.nav-user').on('click', function(event) {
         event.preventDefault();
         event.stopPropagation();
@@ -154,14 +159,13 @@
           $('.dropdown-menu').removeClass('show');
         }
       });
-    });
 
-    // --- 기존 로고 이미지 변경 스크립트 ---
-    document.querySelector('.site-header').addEventListener('mouseenter', function() {
-        document.getElementById('logo-img').src = "{{ url_for('static', filename='img/TeamLogo.png') }}";
-    });
-    document.querySelector('.site-header').addEventListener('mouseleave', function() {
-        document.getElementById('logo-img').src = "{{ url_for('static', filename='img/TeamLogo_white.png') }}";
+      document.querySelector('.site-header').addEventListener('mouseenter', function() {
+          document.getElementById('logo-img').src = "{{ url_for('static', filename='img/TeamLogo.png') }}";
+      });
+      document.querySelector('.site-header').addEventListener('mouseleave', function() {
+          document.getElementById('logo-img').src = "{{ url_for('static', filename='img/TeamLogo_white.png') }}";
+      });
     });
   </script>
 </body>

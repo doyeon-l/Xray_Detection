@@ -1,3 +1,4 @@
+import sys
 from flask import Flask, render_template, request, jsonify, make_response, redirect, url_for, flash, session
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -16,177 +17,127 @@ from PIL import Image
 from ultralytics import YOLO
 from pytorch_msssim import ms_ssim # pip install pytorch-msssim
 from efficientnet_pytorch import EfficientNet  # pip install efficientnet_pytorch
-from model.model import EfficientNetAutoencoder # 👈 직접 작성한 모델 클래스 import 필요
+from model.models import EfficientNetAutoencoder # 👈 직접 작성한 모델 클래스 import 필요
 from model.classifier import EfficientNetClassifier
 # from torchvision.models import efficientnet_b2, EfficientNet_B2_Weights
-from model.model import MSSSIMLoss
+from model.models import MSSSIMLoss
 from functools import wraps
 from flask import abort
+import subprocess  # 👈 [기능 3] 재학습 스크립트 실행을 위해 추가
+
+# 👈 [기능 2] XAI (Grad-CAM) 라이브러리 추가
+from pytorch_grad_cam.utils.image import show_cam_on_image
+from pytorch_grad_cam.grad_cam import GradCAM
+import ttach as tta
+
+import psutil # 🚀 프로세스 제어를 위해 psutil 라이브러리가 필요합니다 (pip install psutil)
 
 app = Flask(__name__)
 uploadPath = './static/upload'
 modelPath = './model'
+xaiResultPath = './static/xai_results' # 👈 [기능 2] XAI 결과 저장 폴더
 
-# 💡 세션과 flash 메시지를 사용하기 위한 시크릿 키 설정 (실제 서비스에서는 더 복잡한 키 사용)
+# XAI 결과 폴더가 없으면 생성
+if not os.path.exists(xaiResultPath):
+    os.makedirs(xaiResultPath)
+
 app.secret_key = 'your-secret-key-for-fubao-project'
-
-# ✨ [새로 추가] 관리자 생성을 위한 비밀 코드 (실제 서비스에서는 환경 변수 등으로 안전하게 관리)
 app.config['ADMIN_SECRET_CODE'] = 'admin123'
 
-# --- Flask-Login 설정 ---
 login_manager = LoginManager()
 login_manager.init_app(app)
-# 💡 로그인이 필요한 페이지에 비로그인 유저가 접근 시, 'login' 라우트로 리다이렉트
 login_manager.login_view = 'login'
 
-# login_manager 설정 아래에 추가
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated or not current_user.is_admin:
-            abort(403) # 403 Forbidden 오류 발생
+            abort(403)
         return f(*args, **kwargs)
     return decorated_function
 
-# --- 사용자 모델 정의 (UserMixin 상속) ---
 class User(UserMixin):
     def __init__(self, id, userid, password_hash, name, email, company, role, is_admin):
         self.id = id
-        self.username = userid # Flask-Login은 'username' 속성을 내부적으로 사용할 수 있으므로 userid를 username에 할당
+        self.username = userid
         self.password_hash = password_hash
         self.name = name
         self.email = email
         self.company = company
         self.role = role
-        self.is_admin = is_admin # ✨ is_admin 속성 초기화
+        self.is_admin = is_admin
 
-    # werkzeug.security를 사용한 비밀번호 처리
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
-# --- 사용자 로더 함수 ---
 @login_manager.user_loader
 def load_user(user_id):
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        # 💡 DB에서 가져오는 필드들을 추가합니다.
         cursor.execute("SELECT id, userid, password_hash, name, email, company, role, is_admin FROM users WHERE id = %s", (user_id,))
         user_data = cursor.fetchone()
     conn.close()
     if user_data:
-        # 💡 User 객체 생성 시 모든 필드를 전달합니다.
         return User(id=user_data['id'], userid=user_data['userid'], password_hash=user_data['password_hash'], 
                     name=user_data['name'], email=user_data['email'], 
                     company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'])
     return None
 
+# --- 모델 로드 ---
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# 지도학습 분류 모델 (EfficientNet-B3)
+classifier_model = EfficientNetClassifier(num_classes=2).to(device)
+classifier_model.load_state_dict(torch.load(os.path.join(modelPath, 'eff_from_yolo_infer.pth'), map_location=device))
+classifier_model.eval()
+
+# 비지도학습 이상 탐지 모델 (Autoencoder with EfficientNet-B2)
+autoencoder_model = EfficientNetAutoencoder(model_version='b2', output_size=224).to(device)
+autoencoder_model.load_state_dict(torch.load(os.path.join(modelPath, 'autoencoder_effnetb2_img224_batch16_epoch100_M80_SS20.pth'), map_location=device))
+autoencoder_model.eval()
+
+# YOLO 모델
+yolo_model = YOLO(os.path.join(modelPath, 'best.pt'))
+
+def get_db_connection():
+    return pymysql.connect(
+        host='127.0.0.1', user='root', password='root123', db='mysql',
+        charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor
+    )
+
+def get_transform(size=300): # B3 기준 300
+    return transforms.Compose([
+        transforms.Resize((size, size)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
 
 def predict_with_classifier(model, input_tensor):
     model.eval()
     with torch.no_grad():
         output = model(input_tensor)
-        probabilities = torch.softmax(output, dim=1) # 예측 확률
+        probabilities = torch.softmax(output, dim=1)
         predicted_class_index = torch.argmax(probabilities).item()
-        score = probabilities[0, 1].item() # GOOD 클래스(인덱스 1)의 확률을 점수로 사용
+        score = probabilities[0, predicted_class_index].item() # 예측된 클래스의 확률을 점수로 사용
+    return "GOOD" if predicted_class_index == 1 else "BAD", score
 
-    # 인덱스 0은 BAD, 1은 GOOD이라고 가정
-    if predicted_class_index == 1:
-        return "GOOD", score
-    else:
-        return "BAD", score
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-classifier = EfficientNetClassifier(num_classes=2).to(device)
-state_dict = torch.load(os.path.join(modelPath, 'eff_from_yolo_infer.pth'), map_location=device)
-classifier.load_state_dict(state_dict)
-classifier.eval()  # 평가 모드
-
-model = EfficientNetAutoencoder(model_version='b2', output_size=224).to(device)
-model.load_state_dict(torch.load(os.path.join(modelPath, 'autoencoder_effnetb2_img224_batch16_epoch100_M80_SS20.pth'), map_location=device))
-model.eval()
-# YOLO 모델 로드 함수 정의
-def load_model(model_path='model/best.pt'):
-    model = YOLO(model_path)
-    return model
-
-# DB 연결 설정
-def get_db_connection():
-    return pymysql.connect(
-        host='127.0.0.1',
-        # user='root2',
-        # password='root12345',
-        user='root',
-        password='root123',
-        db='mysql',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-
-
-
-# 이미지 전처리
-def get_transform(model_gb: str):
-    if model_gb == 'S':  # 지도학습 (B3)
-        size = 300
-    elif model_gb == 'U':  # 비지도학습 (B2)
-        size = 224
-    else:
-        size = 224  # fallback
-    return transforms.Compose([
-        transforms.Resize((size, size)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])
-    ])
-
-
-
-# YOLO로 객체 크롭 함수
-def crop_image_with_yolo(image_path, yolo_model):
-    img = cv2.imread(image_path)
-    results = yolo_model(img)
-    cropped_images = []
-    
-    for result in results:
-        boxes = result.boxes.xyxy.cpu().numpy()
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box[:4])
-            cropped = img[y1:y2, x1:x2]
-            cropped_pil = Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
-            cropped_images.append(cropped_pil)
-    
-    return cropped_images if cropped_images else [Image.open(image_path)]  # 크롭 실패 시 원본 이미지 반환
-
-
-# 여기까지 함수 정의 끝
-
-# 전역 변수로 모델 로드
-efficientnet_classifier_model = classifier
-efficientnet_autoencoder_model = model
-yolo_model = load_model()
-
-
-UPLOAD_FOLDER = 'static/upload'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# 업로드 파일 유효성 검사
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
 
-
-# 지도,비지도 학습 모델 업로드 
+# --- [수정] 업로드 및 추론 라우트 ---
 @app.route('/upload', methods=['POST'])
-def upload():
-    global efficientnet_classifier_model_b3, efficientnet_autoencoder_model
+@login_required
+def upload_files():
     std_date = request.form.get('std_date')
-    model_gb = request.form.get('model_gb', 'S')  # 기본값은 'S'
+    model_gb = request.form.get('model_gb', 'S')  # 'S' 또는 'U'
     files = request.files.getlist('files')
     results = []
+
+    if not std_date or not files:
+        return jsonify({'status': 'error', 'message': '기준일과 파일이 필요합니다.'}), 400
 
     for file in files:
         if file and allowed_file(file.filename):
@@ -195,102 +146,296 @@ def upload():
             filepath = os.path.join(uploadPath, filename)
             file.save(filepath)
 
-            # 원본 이미지 로드
-            original_img = Image.open(filepath).convert('RGB')
-            
-            # YOLO 모델로 박스 감지
-            yolo_results = yolo_model(filepath)
-            
-            # 최종 분류 결과와 점수 변수 초기화
-            effnet_class = 'UNKNOWN'
-            yolo_class = '0' # 기본값은 '0' (BAD)
-            score = 0.0
+            img_pil = Image.open(filepath).convert('RGB')
 
-            # 💡 수정: YOLO 결과의 클래스 이름을 직접 확인하여 yolo_class 및 effnet_class 결정
-            yolo_final_class = None
-            if hasattr(yolo_results[0], 'boxes') and hasattr(yolo_results[0].boxes, 'cls'):
-                for cls_tensor in yolo_results[0].boxes.cls:
-                    class_name = yolo_results[0].names[int(cls_tensor)]
-                    if class_name == 'BAD':
-                        yolo_final_class = 'BAD'
-                        break  # 'BAD'가 감지되면 바로 종료
-                    elif class_name == 'GOOD':
-                        yolo_final_class = 'GOOD'
-            
-            # =====================
-            # 지도학습 (EfficientNet-B3 분류)
-            # =====================
+            initial_prediction, yolo_class, effnet_class = 'UNKNOWN', '0', 'UNKNOWN'
+            score, anomaly_score = 0.0, None
+
             if model_gb == 'S':
-                # YOLO가 GOOD 또는 BAD를 감지했으면 그 결과를 사용
-                if yolo_final_class:
-                    effnet_class = yolo_final_class
-                    yolo_class = '1' if effnet_class == 'GOOD' else '0'
+                # 🚀 [핵심 수정] YOLO 객체 탐지 모델의 결과 처리 로직으로 변경
+                yolo_results = yolo_model.predict(source=filepath, verbose=False)
+
+                # 탐지된 객체(Box)의 개수를 확인합니다.
+                num_detections = len(yolo_results[0].boxes)
+
+                # 💡 [핵심 수정] 신뢰도 임계값 변수 추가
+                confidence_threshold = 0.5 # 50% 신뢰도
+
+                # 💡 [진단 코드 추가] 터미널(콘솔)에서 탐지 결과를 확인합니다.
+                print(f"--- [Debug] Image: {org_image_name} ---")
+                print(f"Detections found: {num_detections}")
+                if num_detections > 0:
+                    top_confidence = yolo_results[0].boxes.conf[0].item()
+                    print(f"Top detection confidence: {top_confidence:.4f}")
+                print("-------------------------------------------")
+
+                # 💡 [핵심 수정] 탐지된 객체가 있고, 그 신뢰도가 임계값보다 높은 경우에만 BAD로 판정
+                if num_detections > 0 and yolo_results[0].boxes.conf[0].item() > confidence_threshold:
+                    initial_prediction = "BAD"
+                    yolo_class = '0'
+                    score = yolo_results[0].boxes.conf[0].item()
                 else:
-                    # YOLO가 아무것도 감지하지 못했으면 B3 모델 사용
-                    transform = get_transform('S') 
-                    input_img_tensor = transform(original_img).unsqueeze(0).to(device)
-                    effnet_class_raw, score = predict_with_classifier(efficientnet_classifier_model_b3, input_img_tensor)
-                    
-                    # 💡 최종 예측 결과 반전 로직 추가
-                    if effnet_class_raw == 'GOOD':
-                        effnet_class = 'BAD'
-                    else:
-                        effnet_class = 'GOOD'
-                        
-                    yolo_class = '1' if effnet_class == 'GOOD' else '0'
+                    # 탐지된 것이 없거나, 신뢰도가 너무 낮으면 GOOD으로 판정
+                    initial_prediction = "GOOD"
+                    yolo_class = '1'
+                    # 점수는 탐지 결과에 따라 다르게 설정 (없으면 1.0, 낮으면 해당 점수)
+                    score = yolo_results[0].boxes.conf[0].item() if num_detections > 0 else 1.0
 
-                print(f"[지도학습] 파일: {filename}, YOLO 클래스(박스 유무): {yolo_class}, 최종 예측 클래스: {effnet_class}, 점수: {score}")
+                effnet_class = initial_prediction
 
-            # =====================
-            # 비지도학습 (EfficientNet 오토인코더)
-            # =====================
             elif model_gb == 'U':
-                reconstruction_error = None # 💡 reconstruction_error 변수를 None으로 초기화
-                if yolo_final_class:
-                    effnet_class = yolo_final_class
-                    yolo_class = '1' if effnet_class == 'GOOD' else '0'
-                else:
-                    transform = get_transform('U')
-                    input_tensor = transform(original_img).unsqueeze(0).to(device)
-                    with torch.no_grad():
-                        reconstructed_tensor = efficientnet_autoencoder_model(input_tensor)
-                        reconstruction_error = nn.mse_loss(reconstructed_tensor, input_tensor).item()
-                    score = max(0.0, 1.0 - reconstruction_error)
-                    RECONSTRUCTION_THRESHOLD = 0.05
-                    effnet_class_raw = 'GOOD' if reconstruction_error < RECONSTRUCTION_THRESHOLD else 'BAD'
-                    
-                    # 💡 최종 예측 결과 반전 로직 추가
-                    if effnet_class_raw == 'GOOD':
-                        effnet_class = 'BAD'
-                    else:
-                        effnet_class = 'GOOD'
-                        
-                    yolo_class = '1' if effnet_class == 'GOOD' else '0'
+                # 비지도학습 로직은 기존과 동일합니다.
+                transform = get_transform(size=224)
+                input_tensor = transform(img_pil).unsqueeze(0).to(device)
+                with torch.no_grad():
+                    reconstructed = autoencoder_model(input_tensor)
+                    reconstruction_error = nn.mse_loss(reconstructed, input_tensor).item()
 
-                print(f"[비지도학습] 파일: {filename}, YOLO 클래스(박스 유무): {yolo_class}, 최종 예측 클래스: {effnet_class}, 점수: {score}, 재구성 오류: {reconstruction_error}")
+                anomaly_score = reconstruction_error
+                # 💡 이상 점수 임계값은 모델 성능에 따라 조정이 필요할 수 있습니다.
+                threshold = 0.6
+                initial_prediction = "GOOD" if anomaly_score < threshold else "BAD"
+                yolo_class = '1' if initial_prediction == 'GOOD' else '0'
+                effnet_class = initial_prediction
+                # 점수는 (1 - 이상 점수)로 변환하여 0~1 사이 값으로 표시
+                score = max(0.0, 1.0 - anomaly_score)
 
-            # =====================
-            # 공통: 데이터베이스 저장 로직 (단 한번 실행)
-            # =====================
+                # 💡 [진단 코드 추가] 터미널(콘솔)에서 비지도학습 탐지 결과를 확인합니다.
+                print(f"--- [Debug Unsupervised] Image: {org_image_name} ---")
+                print(f"Anomaly Score (Reconstruction Error): {anomaly_score:.4f}")
+                print(f"Threshold: {threshold}")
+                print(f"Final Prediction: {initial_prediction}")
+                print("----------------------------------------------------")
+
             conn = get_db_connection()
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO classified_objects 
-                        (std_date, model_gb, image_path, image_name, org_image_name, yolo_class, effnet_class, score)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, (std_date, model_gb, filepath, filename, org_image_name, yolo_class, effnet_class, score))
+                    INSERT INTO classified_objects
+                        (std_date, model_gb, image_path, image_name, org_image_name, yolo_class, effnet_class, score, anomaly_score, initial_prediction)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (std_date, model_gb, filepath, filename, org_image_name, yolo_class, effnet_class, score, anomaly_score, initial_prediction))
                 conn.commit()
             conn.close()
-            
-            # 결과를 results 리스트에 추가 (클라이언트에 응답하기 위함)
-            results.append({
-                'filename': filename,
-                'yolo_class': yolo_class,
-                'effnet_class': effnet_class,
-                'score': score
-            })
+
+            results.append({'filename': filename, 'effnet_class': effnet_class})
 
     return jsonify({'status': 'success', 'results': results})
+
+# --- 🚀 [신규] XAI (Grad-CAM) 생성 API ---
+@app.route('/api/grad_cam/<int:item_id>', methods=['GET'])
+@login_required
+def generate_grad_cam(item_id):
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        # 💡 [수정] 이제 model_gb 컬럼도 함께 조회합니다.
+        cursor.execute("SELECT image_path, xai_image_path, model_gb FROM classified_objects WHERE id = %s", (item_id,))
+        item = cursor.fetchone()
+    conn.close()
+
+    if not item:
+        return jsonify({'status': 'error', 'message': '이미지를 찾을 수 없습니다.'}), 404
+
+    # XAI 이미지가 이미 있다면 바로 반환 (캐싱)
+    if item['xai_image_path']:
+        return jsonify({'status': 'success', 'xai_path': item['xai_image_path']})
+
+    try:
+        image_path = item['image_path']
+        img_pil = Image.open(image_path).convert('RGB')
+        
+        visualization = None # 시각화 결과를 담을 변수
+
+        # 💡 [핵심] 모델 구분에 따라 다른 XAI 로직을 실행
+        if item['model_gb'] == 'S':
+            # --- 1. 지도학습 모델: Grad-CAM (기존 로직) ---
+            img_pil_resized = img_pil.resize((300, 300))
+            rgb_img = np.array(img_pil_resized, dtype=np.float32) / 255
+            transform = get_transform(size=300)
+            input_tensor = transform(img_pil_resized).unsqueeze(0).to(device)
+
+            target_layers = [classifier_model.features[-1]]
+            cam = GradCAM(model=classifier_model, target_layers=target_layers)
+            grayscale_cam = cam(input_tensor=input_tensor, targets=None)[0, :]
+            
+            visualization = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
+
+        elif item['model_gb'] == 'U':
+            # --- 2. 비지도학습 모델: 복원 오차 맵 (신규 로직) ---
+            transform = get_transform(size=224)
+            input_tensor = transform(img_pil).unsqueeze(0).to(device)
+            
+            with torch.no_grad():
+                reconstructed_tensor = autoencoder_model(input_tensor)
+
+            # 텐서를 시각화 가능한 이미지(numpy 배열)로 변환
+            original_img_np = input_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
+            reconstructed_img_np = reconstructed_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
+            
+            # 픽셀 단위로 차이를 계산 (오차 맵)
+            error_map = np.abs(original_img_np - reconstructed_img_np)
+            error_map_gray = np.mean(error_map, axis=2) # 흑백으로 변환
+            
+            # 히트맵 생성
+            heatmap = cv2.normalize(error_map_gray, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+            
+            # 원본 이미지도 0~255 범위의 uint8 타입으로 변환
+            original_img_display = cv2.normalize(original_img_np, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            
+            # 원본 이미지와 히트맵을 합성
+            superimposed_img = cv2.addWeighted(heatmap, 0.5, original_img_display, 0.5, 0)
+            visualization = cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB) # PIL 저장을 위해 RGB로 변환
+
+        if visualization is not None:
+            xai_filename = f"xai_{os.path.basename(image_path)}"
+            xai_filepath = os.path.join(xaiResultPath, xai_filename)
+            Image.fromarray(visualization).save(xai_filepath)
+
+            conn = get_db_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("UPDATE classified_objects SET xai_image_path = %s WHERE id = %s", (xai_filepath, item_id))
+                conn.commit()
+            conn.close()
+
+            return jsonify({'status': 'success', 'xai_path': xai_filepath})
+        else:
+             return jsonify({'status': 'error', 'message': '해당 모델에 대한 XAI를 생성할 수 없습니다.'}), 500
+
+    except Exception as e:
+        print(f"XAI 이미지 생성 중 오류 발생: {e}")
+        return jsonify({'status': 'error', 'message': f'XAI 이미지 생성 중 오류가 발생했습니다: {e}'}), 500
+
+
+# 🚀 [신규] 성능 모니터링 API ---
+@app.route('/stats/performance_trend')
+@login_required
+def stats_performance_trend():
+    query = """
+        SELECT
+            YEARWEEK(created_at, 1) AS year_week,
+            COUNT(id) AS total_count,
+            SUM(CASE WHEN initial_prediction = 'GOOD' AND yolo_class = '1' THEN 1
+                     WHEN initial_prediction = 'BAD' AND yolo_class = '0' THEN 1
+                     ELSE 0 END) AS correct_count,
+            SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) AS actual_bad,
+            SUM(CASE WHEN initial_prediction = 'BAD' AND yolo_class = '0' THEN 1 ELSE 0 END) AS true_positives
+        FROM classified_objects
+        WHERE del_yn = 'N'
+        GROUP BY year_week
+        ORDER BY year_week DESC
+        LIMIT 8;
+    """
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute(query)
+        data = cursor.fetchall()
+        
+        # 💡 [핵심 수정] fetchall()이 반환하는 튜플(tuple)을 리스트(list)로 변환합니다.
+        data = list(data)
+
+        for i, row in enumerate(data):
+            total = row['total_count']
+            correct = row['correct_count']
+            actual_bad = row['actual_bad']
+            tp = row['true_positives']
+
+            row['accuracy'] = round((correct / total * 100) if total > 0 else 0, 2)
+            row['recall'] = round((tp / actual_bad * 100) if actual_bad > 0 else 0, 2)
+            row['week_label'] = f"{- (len(data) - 1 - i)}주"
+
+    conn.close()
+    data.reverse()
+    return jsonify(data)
+    
+# --- 🚀 [신규] 모델 재학습 트리거 API ---
+@app.route('/admin/retrain_model', methods=['POST'])
+@admin_required
+def retrain_model():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # 💡 [수정] 이미 실행 중인 작업이 있는지 확인
+            cursor.execute("SELECT id FROM retraining_jobs WHERE status = 'RUNNING' OR status = 'PENDING'")
+            if cursor.fetchone():
+                flash('이미 재학습 작업이 진행 중입니다.', 'warning')
+                return redirect(url_for('model_management'))
+
+            cursor.execute("INSERT INTO retraining_jobs (status, progress_log) VALUES ('PENDING', '재학습 작업을 대기열에 추가했습니다...\\n')")
+            conn.commit()
+            job_id = cursor.lastrowid
+
+            # train.py를 백그라운드 프로세스로 실행
+            process = subprocess.Popen([sys.executable, 'train.py', '--job_id', str(job_id)])
+            
+            # 💡 [신규] 생성된 프로세스의 PID를 DB에 즉시 저장
+            cursor.execute("UPDATE retraining_jobs SET process_id = %s WHERE id = %s", (process.pid, job_id))
+            conn.commit()
+
+        flash('모델 재학습 프로세스가 시작되었습니다.', 'success')
+    except Exception as e:
+        flash(f'재학습 시작 중 오류 발생: {e}', 'error')
+    finally:
+        if conn:
+            conn.close()
+    return redirect(url_for('model_management'))
+
+
+# --- 🚀 [신규] 재학습 중지 API ---
+@app.route('/api/stop_retraining', methods=['POST'])
+@admin_required
+def stop_retraining_job():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # 현재 실행중인 작업의 PID를 찾음
+            cursor.execute("SELECT id, process_id FROM retraining_jobs WHERE status = 'RUNNING' ORDER BY id DESC LIMIT 1")
+            job = cursor.fetchone()
+
+            if job and job.get('process_id'):
+                pid = job['process_id']
+                job_id = job['id']
+                try:
+                    # psutil을 사용하여 해당 프로세스 종료
+                    p = psutil.Process(pid)
+                    p.terminate() # 프로세스 강제 종료
+                    message = "사용자에 의해 작업이 취소되었습니다."
+                    # DB 상태를 'CANCELED'로 업데이트
+                    cursor.execute("UPDATE retraining_jobs SET status = 'CANCELED', result_message = %s, completed_at = NOW() WHERE id = %s", (message, job_id))
+                    conn.commit()
+                    return jsonify({'status': 'success', 'message': message})
+                except psutil.NoSuchProcess:
+                    message = "프로세스를 찾을 수 없지만, 작업을 취소됨으로 처리합니다."
+                    cursor.execute("UPDATE retraining_jobs SET status = 'CANCELED', result_message = %s, completed_at = NOW() WHERE id = %s", (message, job_id))
+                    conn.commit()
+                    return jsonify({'status': 'warning', 'message': message})
+            else:
+                return jsonify({'status': 'error', 'message': '중지할 수 있는 실행 중인 작업이 없습니다.'}), 404
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# --- 🚀 [신규] 재학습 상태 확인 API ---
+@app.route('/api/retraining_status')
+@admin_required
+def get_retraining_status():
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        # 가장 최근의 작업 1개만 조회
+        cursor.execute("SELECT * FROM retraining_jobs ORDER BY id DESC LIMIT 1")
+        job = cursor.fetchone()
+    conn.close()
+
+    if job:
+        # 날짜/시간 객체를 문자열로 변환 (JSON으로 보내기 위해)
+        for key, value in job.items():
+            if isinstance(value, datetime):
+                job[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+        return jsonify(job)
+    else:
+        # 아직 아무 작업도 없는 경우
+        return jsonify({'status': 'NO_JOB', 'progress_log': '아직 재학습 작업이 시작되지 않았습니다.'})
 
 @app.route('/')
 def index():
@@ -304,55 +449,53 @@ def list_page():
 
 @app.route('/api/list', methods=['GET'])
 def api_list():
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('limit', 20))
+    offset = (page - 1) * per_page
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     yolo_class = request.args.get('yolo_class')
-    model_gb = request.args.get('model_gb')  # 지도학습/비지도학습 선택
     search_term = request.args.get('search_term')
+    model_gb = request.args.get('model_gb', 'S')
     sort_by = request.args.get('sort_by', 'id')
     sort_order = request.args.get('sort_order', 'DESC')
 
-    query = """
-        SELECT id, std_date, image_path, image_name, org_image_name, yolo_class, 
-               effnet_class, score, DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at,
-               note, is_reclassified, modified_by,
-               IFNULL(DATE_FORMAT(modified_at, '%%Y-%%m-%%d %%H:%%i:%%s'), '') AS modified_at
-        FROM classified_objects 
-        WHERE del_yn = 'N'
-    """
+    base_query = "FROM classified_objects WHERE del_yn = 'N'"
     params = []
 
-    if from_date:
-        from_date_dt = datetime.strptime(from_date, "%Y%m%d").strftime("%Y-%m-%d 00:00:00")
-        query += " AND created_at >= %s"
-        params.append(from_date_dt)
-    if to_date:
-        to_date_dt = datetime.strptime(to_date, "%Y%m%d").strftime("%Y-%m-%d 23:59:59")
-        query += " AND created_at <= %s"
-        params.append(to_date_dt)
-    if yolo_class in ('0', '1'):
-        query += " AND yolo_class = %s"
-        params.append(yolo_class)
     if model_gb in ('S', 'U'):
-        query += " AND model_gb = %s"
+        base_query += " AND model_gb = %s"
         params.append(model_gb)
+    if from_date:
+        base_query += " AND std_date >= %s"
+        params.append(from_date)
+    if to_date:
+        base_query += " AND std_date <= %s"
+        params.append(to_date)
+    if yolo_class in ('0', '1'):
+        base_query += " AND yolo_class = %s"
+        params.append(yolo_class)
     if search_term:
-        query += " AND org_image_name LIKE %s"
+        base_query += " AND org_image_name LIKE %s"
         params.append(f"%{search_term}%")
 
-    allowed_sort_columns = ['id', 'std_date', 'org_image_name', 'yolo_class', 'created_at']
-    if sort_by in allowed_sort_columns and sort_order.upper() in ['ASC', 'DESC']:
-        query += f" ORDER BY {sort_by} {sort_order.upper()}"
-    else:
-        query += " ORDER BY id DESC"
-
+    count_query = "SELECT COUNT(*) as total " + base_query
+    
+    allowed_sort_columns = ['id', 'std_date', 'org_image_name', 'yolo_class', 'created_at', 'anomaly_score']
+    order_clause = f" ORDER BY {sort_by} {sort_order.upper()}" if sort_by in allowed_sort_columns and sort_order.upper() in ['ASC', 'DESC'] else " ORDER BY id DESC"
+        
+    data_query = "SELECT id, std_date, model_gb, image_path, image_name, org_image_name, yolo_class, effnet_class, score, anomaly_score, DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at, note, is_reclassified, modified_by, IFNULL(DATE_FORMAT(modified_at, '%%Y-%%m-%%d %%H:%%i:%%s'), '') AS modified_at " + base_query + order_clause + " LIMIT %s OFFSET %s"
+    
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute(query, params)
-        result = cursor.fetchall()
+        cursor.execute(count_query, tuple(params))
+        total_count = cursor.fetchone()['total']
+        data_params = tuple(params + [per_page, offset])
+        cursor.execute(data_query, data_params)
+        result_data = cursor.fetchall()
     conn.close()
 
-    return jsonify(result)
+    return jsonify({'total': total_count, 'data': result_data})
 
 @app.route('/api/export', methods=['GET'])
 def export_csv():
@@ -414,30 +557,72 @@ def api_delete():
 
 # --- 재분류 API ---
 @app.route('/api/reclassify', methods=['POST'])
-@login_required # 👈 API도 보호합니다.
+@login_required
 def api_reclassify():
+    # ... (이 함수는 그대로 유지) ...
     data = request.json
     item_id = data.get('id')
     new_class = data.get('new_class')
-    # 🔴 수정자를 하드코딩된 "admin" 대신, 현재 로그인된 사용자 이름으로 변경
-    modifier = current_user.username 
+    modifier = current_user.username
 
     if not item_id or new_class not in ('0', '1'):
         return jsonify({'status': 'error', 'message': 'Invalid data'}), 400
-    
+
     query = """
-        UPDATE classified_objects 
-        SET 
-            yolo_class = %s, effnet_class = %s, 
-            is_reclassified = CASE WHEN is_reclassified = 1 THEN 0 ELSE 1 END,
+        UPDATE classified_objects
+        SET
+            yolo_class = %s, effnet_class = %s,
+            is_reclassified = 1,
             modified_at = NOW(), modified_by = %s
         WHERE id = %s
     """
+    # effnet_class도 동일하게 업데이트, is_reclassified는 1로 고정
+    new_effnet_class = 'GOOD' if new_class == '1' else 'BAD'
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute(query, (new_class, new_class, modifier, item_id))
+        cursor.execute(query, (new_class, new_effnet_class, modifier, item_id))
     conn.commit()
     conn.close()
+    return jsonify({'status': 'success'})
+
+
+# 🚀 [신규] 선택 항목 일괄 재분류 API ---
+@app.route('/api/reclassify_batch', methods=['POST'])
+@login_required
+def api_reclassify_batch():
+    items = request.json.get('items', [])
+    if not items:
+        return jsonify({'status': 'error', 'message': 'No items selected'}), 400
+
+    modifier = current_user.username
+    conn = get_db_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            for item in items:
+                item_id = item.get('id')
+                current_class = item.get('current_class')
+
+                # 현재 상태를 기반으로 새로운 상태 결정
+                new_class = '0' if current_class == '1' else '1'
+                new_effnet_class = 'GOOD' if new_class == '1' else 'BAD'
+
+                query = """
+                    UPDATE classified_objects
+                    SET
+                        yolo_class = %s, effnet_class = %s,
+                        is_reclassified = 1,
+                        modified_at = NOW(), modified_by = %s
+                    WHERE id = %s
+                """
+                cursor.execute(query, (new_class, new_effnet_class, modifier, item_id))
+        conn.commit()
+    except Exception as e:
+        conn.rollback() # 오류 발생 시 모든 변경사항 되돌리기
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+    finally:
+        conn.close()
+
     return jsonify({'status': 'success'})
 
 # --- 메모 업데이트 API ---
@@ -655,36 +840,37 @@ def check_admin_code():
 # --- 회원가입 라우트 (수정된 버전) ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    # 💡 [핵심 로직 1]
+    # 사용자가 이미 로그인된 상태에서 이 페이지에 오려고 하면,
+    # 이전 세션을 깨끗하게 로그아웃시켜서 충돌을 방지합니다.
+    if current_user.is_authenticated:
+        logout_user()
+
     if request.method == 'POST':
-        # 폼에서 모든 데이터 가져오기
+        # ... (POST 요청 처리 로직은 기존과 동일하므로 생략) ...
         userid = request.form['userid']
         password = request.form['password']
         password_confirm = request.form['password_confirm']
         name = request.form['name']
         email = request.form['email']
-        company = request.form.get('company', '') # 선택 사항
-        role = request.form.get('role', '')       # 선택 사항
-        terms = request.form.get('terms') # 약관 동의 체크박스
+        company = request.form.get('company', '')
+        role = request.form.get('role', '')
+        terms = request.form.get('terms')
+        admin_code = request.form.get('admin_code', '')
+        is_admin_user = False
 
-        admin_code = request.form.get('admin_code', '') # ✨ 관리자 코드 가져오기
-        is_admin_user = False # 기본값은 일반 사용자
-
-        # ✨ 관리자 코드 확인 로직
         if admin_code == app.config['ADMIN_SECRET_CODE']:
             is_admin_user = True
 
-        # --- 서버 사이드 유효성 검사 ---
         if password != password_confirm:
             flash('비밀번호가 일치하지 않습니다.', 'error')
             return redirect(url_for('register'))
-        
         if not terms:
             flash('이용약관에 동의해야 합니다.', 'error')
             return redirect(url_for('register'))
 
         conn = get_db_connection()
         with conn.cursor() as cursor:
-            # 아이디 또는 이메일이 이미 존재하는지 다시 한번 확인
             cursor.execute("SELECT * FROM users WHERE userid = %s OR email = %s", (userid, email))
             existing_user = cursor.fetchone()
             if existing_user:
@@ -692,31 +878,35 @@ def register():
                 conn.close()
                 return redirect(url_for('register'))
 
-            # 비밀번호 해싱 및 DB에 저장
             hashed_password = generate_password_hash(password)
             cursor.execute("""
-                INSERT INTO users (userid, password_hash, name, email, company, role, is_admin) 
+                INSERT INTO users (userid, password_hash, name, email, company, role, is_admin)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (userid, hashed_password, name, email, company, role, is_admin_user))
         conn.commit()
         conn.close()
-        
-        # 👇 [핵심 수정] 기존 'success' 카테고리를 'register_success'로 변경
+
         flash('회원가입이 완료되었습니다. 로그인해주세요.', 'register_success')
         return redirect(url_for('login'))
-        
+
+    # GET 요청 시에는 회원가입 페이지만 보여줍니다.
     return render_template('register.html')
 
 # --- 로그인 라우트 (수정) ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # 💡 [핵심 로직 2]
+    # 사용자가 이미 로그인된 상태라면, 로그인 페이지를 보여줄 필요 없이
+    # 즉시 메인 페이지로 보냅니다.
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
     if request.method == 'POST':
+        # ... (POST 요청 처리 로직은 기존과 동일하므로 생략) ...
         userid = request.form['userid']
         password = request.form['password']
-        
-        # 클라이언트에서 빈칸을 막지만, 만약을 위한 서버 측 방어 코드
+
         if not userid or not password:
-            # 👇 [핵심 수정 1] 카테고리를 'error'에서 'login_error'로 변경
             flash('아이디와 비밀번호를 모두 입력해주세요.', 'login_error')
             return render_template('login.html', userid=userid)
 
@@ -734,10 +924,10 @@ def login():
             flash('로그인 되었습니다.', 'login_success')
             return redirect(url_for('index'))
         else:
-            # 👇 [핵심 수정 2] 카테고리를 'error'에서 'login_error'로 변경
             flash('아이디 또는 비밀번호가 올바르지 않습니다.', 'login_error')
             return render_template('login.html', userid=userid)
-            
+
+    # GET 요청 시에는 로그인 페이지만 보여줍니다.
     return render_template('login.html', userid='')
 
 # --- 로그아웃 라우트 ---
@@ -833,6 +1023,97 @@ def admin_dashboard():
     conn.close()
     return render_template('admin.html', users=users)
 
+# --- 🚀 [신규] 모델 관리 페이지 라우트 ---
+@app.route('/admin/model')
+@admin_required
+def model_management():
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        # 재학습에 반영될 이미지 개수 조회 (기존과 동일)
+        cursor.execute("SELECT COUNT(*) as count FROM classified_objects WHERE is_reclassified = 1 AND del_yn = 'N'")
+        reclassified_count = cursor.fetchone()['count']
+
+        # 💡 [수정] 재학습 이력 목록을 페이지네이션으로 조회
+        page = int(request.args.get('page', 1))
+        per_page = 10 # 한 페이지에 10개씩 표시
+        offset = (page - 1) * per_page
+        
+        # 날짜 필터링
+        from_date = request.args.get('from_date')
+        to_date = request.args.get('to_date')
+        
+        query_conditions = []
+        params = []
+
+        if from_date:
+            query_conditions.append("DATE(created_at) >= %s")
+            params.append(from_date)
+        if to_date:
+            query_conditions.append("DATE(created_at) <= %s")
+            params.append(to_date)
+        
+        where_clause = "WHERE " + " AND ".join(query_conditions) if query_conditions else ""
+
+        # 총 이력 개수 조회
+        cursor.execute(f"SELECT COUNT(*) as total FROM retraining_jobs {where_clause}", tuple(params))
+        total_jobs = cursor.fetchone()['total']
+
+        # 현재 페이지의 이력 목록 조회
+        params.extend([per_page, offset])
+        cursor.execute(f"SELECT * FROM retraining_jobs {where_clause} ORDER BY id DESC LIMIT %s OFFSET %s", tuple(params))
+        job_history = cursor.fetchall()
+
+    conn.close()
+    
+    return render_template(
+        'model_management.html', 
+        reclassified_count=reclassified_count,
+        job_history=job_history,
+        total_jobs=total_jobs,
+        page=page,
+        per_page=per_page,
+        from_date=from_date,
+        to_date=to_date
+    )
+
+# --- 🚀 [신규] 재학습 이력 삭제 API ---
+@app.route('/api/delete_job/<int:job_id>', methods=['POST'])
+@admin_required
+def delete_job(job_id):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # 실행 중인 작업은 삭제하지 못하도록 방어
+            cursor.execute("SELECT status FROM retraining_jobs WHERE id = %s", (job_id,))
+            job = cursor.fetchone()
+            if job and job['status'] in ['RUNNING', 'PENDING']:
+                return jsonify({'status': 'error', 'message': '실행 중인 작업은 삭제할 수 없습니다.'}), 400
+            
+            # 작업 삭제
+            result = cursor.execute("DELETE FROM retraining_jobs WHERE id = %s", (job_id,))
+            conn.commit()
+            
+            if result > 0:
+                return jsonify({'status': 'success', 'message': f'작업 ID {job_id} 이력이 삭제되었습니다.'})
+            else:
+                return jsonify({'status': 'error', 'message': '삭제할 작업을 찾지 못했습니다.'}), 404
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# --- 🚀 [신규] 재분류된 이미지 개수만 알려주는 간단한 API ---
+@app.route('/api/reclassified_count')
+@login_required
+def get_reclassified_count():
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) as count FROM classified_objects WHERE is_reclassified = 1 AND del_yn = 'N'")
+        count = cursor.fetchone()['count']
+    conn.close()
+    return jsonify({'count': count})
+
 # --- ✨ [새로 추가] 관리자 권한 토글 API ---
 @app.route('/admin/toggle_admin/<int:user_id>', methods=['POST'])
 @admin_required
@@ -907,6 +1188,42 @@ def delete_account():
     # 성공 메시지와 함께 메인 페이지로 리다이렉트
     flash('회원 탈퇴가 완료되었습니다. 이용해주셔서 감사합니다.', 'logout_success') # 로그아웃 성공과 동일한 카테고리 사용
     return redirect(url_for('index'))
+
+# --- 🚀 [신규] 기간별 데이터 삭제 API ---
+@app.route('/api/delete_by_date', methods=['POST'])
+@admin_required
+def delete_by_date():
+    data = request.get_json()
+    from_date = data.get('from_date')
+    to_date = data.get('to_date')
+
+    if not from_date or not to_date:
+        return jsonify({'status': 'error', 'message': '기간을 선택해주세요.'}), 400
+
+    query = "DELETE FROM classified_objects WHERE std_date BETWEEN %s AND %s"
+    
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        deleted_count = cursor.execute(query, (from_date, to_date))
+    conn.commit()
+    conn.close()
+    
+    flash(f'{from_date}부터 {to_date}까지의 데이터 {deleted_count}건이 삭제되었습니다.', 'success')
+    return jsonify({'status': 'success', 'deleted_count': deleted_count})
+
+# --- 🚀 [신규] 전체 데이터 삭제 API ---
+@app.route('/api/delete_all', methods=['POST'])
+@admin_required
+def delete_all():
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        # TRUNCATE는 롤백이 불가능하지만, DELETE보다 훨씬 빠릅니다.
+        cursor.execute("TRUNCATE TABLE classified_objects")
+    conn.commit()
+    conn.close()
+    
+    flash('모든 검사 데이터가 영구적으로 삭제되었습니다.', 'success')
+    return jsonify({'status': 'success'})
 
 if __name__ == '__main__':
     # app.run(debug=True)

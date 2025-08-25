@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}모델 관리{% endblock %}
+
+{% block head %}
+<style>
+    #retraining-log { background-color: #222; color: #0f0; padding: 15px; border-radius: 5px; height: 400px; overflow-y: scroll; white-space: pre-wrap; font-family: 'Courier New', Courier, monospace; border: 1px solid #444; }
+    .status-badge { padding: 2px 12px; border-radius: 12px; color: white; font-weight: bold; line-height: 1.5; }
+    .status-pending { background-color: #6c757d; } .status-running { background-color: #007bff; } .status-completed { background-color: #28a745; }
+    .status-failed { background-color: #dc3545; } .status-canceled { background-color: #ffc107; color: #212529; }
+    .retraining-status-section p { margin-bottom: 10px; }
+    .job-history-table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+    .job-history-table th, .job-history-table td { border: 1px solid #ddd; padding: 8px; text-align: center; font-size: 0.9em;}
+    .job-history-table th { background-color: #f8f9fa; }
+    .job-history-filters { margin-top: 20px; padding: 15px; background-color: #f1f3f5; border: 1px solid #dee2e6; border-radius: 5px; display: flex; gap: 10px; align-items: center; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <h2>모델 관리</h2>
+    <p>운영자가 재분류한 데이터를 기반으로 모델을 재학습하여 성능을 개선할 수 있습니다.</p>
+    <hr class="form-divider" style="margin: 20px 0;">
+
+    <!-- 1. 재학습 실행 영역 -->
+    <div class="model-management-section">
+        <h3>지도학습 모델 (YOLO) 재학습</h3>
+        <p style="margin-bottom: 20px;">
+            <strong>현재 재학습에 반영될 재분류 이미지는 총 <span style="color: #007bff;">{{ reclassified_count }}</span>개 입니다.</strong>
+        </p>
+        <div id="retrain-controls">
+            <form action="{{ url_for('retrain_model') }}" method="POST" style="display: inline-block;" onsubmit="return confirm('모델 재학습을 시작하시겠습니까?');">
+                <button type="submit" id="retrain-btn" class="btn-promote" style="padding: 10px 20px; font-size: 1.1rem;">모델 재학습 시작</button>
+            </form>
+        </div>
+    </div>
+    <hr class="form-divider" style="margin: 40px 0;">
+
+    <!-- 2. 현재 진행 중인 작업 표시 영역 (동적으로 표시/숨김) -->
+    <div id="live-status-container" class="retraining-status-section" style="display: none;">
+        <h3>현재 진행 중인 작업</h3>
+        <p><strong>상태:</strong> <span id="job-status" class="status-badge"></span></p>
+        <p><strong>최종 결과:</strong> <span id="job-result"></span></p>
+        <p><strong>로그:</strong></p>
+        <pre id="retraining-log"></pre>
+    </div>
+
+    <!-- 3. 재학습 이력 목록 -->
+    <div class="job-history-section">
+        <h3>재학습 이력</h3>
+        <!-- 날짜 검색 필터 -->
+        <div class="job-history-filters">
+            <span>조회 기간:</span>
+            <input type="date" id="from_date" value="{{ from_date or '' }}">
+            <span>~</span>
+            <input type="date" id="to_date" value="{{ to_date or '' }}">
+            <button id="filter-btn">조회</button>
+        </div>
+
+        <table class="job-history-table">
+            <thead>
+                <tr>
+                    <th>작업 ID</th><th>상태</th><th>결과</th><th>시작 시간</th><th>완료 시간</th><th>관리</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in job_history %}
+                <tr>
+                    <td>{{ job.id }}</td>
+                    <td><span class="status-badge status-{{ job.status.lower() }}">{{ job.status }}</span></td>
+                    <td>{{ job.result_message or '-' }}</td>
+                    <td>{{ job.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ job.completed_at.strftime('%Y-%m-%d %H:%M:%S') if job.completed_at else '-' }}</td>
+                    <td>
+                        <button class="btn-delete delete-job-btn" data-job-id="{{ job.id }}">삭제</button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6">재학습 이력이 없습니다.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <!-- 페이지네이션 컨트롤 -->
+        <div id="pagination-controls" style="margin-top: 20px; text-align: center;"></div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    let pollingInterval;
+    // 💡 [핵심 추가] 이전 작업 상태를 기억하기 위한 변수
+    let lastKnownStatus = null;
+
+    // --- 1. 현재 진행 중인 작업 상태 폴링 ---
+    function checkRetrainingStatus() {
+        $.getJSON('/api/retraining_status', function(job) {
+            const currentStatus = job.status;
+
+            // --- 🚀 [핵심 로직] 작업 상태가 '진행 중'에서 '완료/실패/취소'로 바뀌는 순간을 감지 ---
+            if ((lastKnownStatus === 'RUNNING' || lastKnownStatus === 'PENDING') && 
+                (currentStatus === 'COMPLETED' || currentStatus === 'FAILED' || currentStatus === 'CANCELED')) {
+                
+                // 1. 폴링을 즉시 중지
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                }
+
+                // 2. 결과에 맞는 토스트 알림 표시
+                let toastType = 'info';
+                if (currentStatus === 'COMPLETED') toastType = 'success';
+                if (currentStatus === 'FAILED') toastType = 'error';
+                if (currentStatus === 'CANCELED') toastType = 'warning'; // CANCELED는 warning 타입으로 설정
+                
+                showToast(job.result_message || '작업이 종료되었습니다.', toastType);
+
+                // 3. 2초 후에 페이지를 완전히 새로고침하여 이력 테이블을 최신화
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000); // 사용자가 알림을 읽을 시간을 2초 줍니다.
+
+                return; // 함수를 여기서 종료하여 아래 로직을 타지 않도록 함
+            }
+            
+            // 이전 상태를 현재 상태로 업데이트
+            lastKnownStatus = currentStatus;
+
+            // --- 기존의 실시간 UI 업데이트 로직 (진행 중일 때만 실행) ---
+            const liveContainer = $('#live-status-container');
+            const retrainBtn = $('#retrain-btn');
+            const controlsContainer = $('#retrain-controls');
+
+            if (currentStatus === 'RUNNING' || currentStatus === 'PENDING') {
+                liveContainer.show();
+                $('#job-status').text(currentStatus).removeClass().addClass('status-badge status-' + currentStatus.toLowerCase());
+                $('#retraining-log').text(job.progress_log || '').scrollTop($('#retraining-log')[0].scrollHeight);
+                $('#job-result').text(job.result_message || '진행 중...');
+                
+                retrainBtn.prop('disabled', true).text('재학습 진행 중...');
+                if (controlsContainer.find('#stop-btn').length === 0) {
+                    controlsContainer.append('<button type="button" id="stop-btn" class="btn-delete" style="padding: 10px 20px; font-size: 1.1rem; margin-left: 10px;">강제 중지</button>');
+                }
+                if (!pollingInterval) {
+                   pollingInterval = setInterval(checkRetrainingStatus, 5000);
+                }
+            } else {
+                liveContainer.hide();
+                retrainBtn.prop('disabled', false).text('모델 재학습 시작');
+                controlsContainer.find('#stop-btn').remove();
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                }
+            }
+        }).fail(function() {
+            $('#retraining-log').text('서버에서 상태 정보를 가져오는 데 실패했습니다.');
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        });
+    }
+
+    // --- 2. 재학습 이력 페이지네이션 렌더링 ---
+    function renderPagination() {
+        const totalItems = {{ total_jobs }};
+        const itemsPerPage = {{ per_page }};
+        const currentPage = {{ page }};
+        const totalPages = Math.ceil(totalItems / itemsPerPage);
+        // ... (list.html의 renderPagination 로직과 동일하게 구현) ...
+        const controls = $('#pagination-controls').empty();
+        if (totalPages <= 1) return;
+        let paginationHtml = '<ul class="pagination">';
+        paginationHtml += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${currentPage - 1}">이전</a></li>`;
+        for (let i = 1; i <= totalPages; i++) {
+            paginationHtml += `<li class="page-item ${i === currentPage ? 'active' : ''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
+        }
+        paginationHtml += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${currentPage + 1}">다음</a></li>`;
+        paginationHtml += '</ul>';
+        controls.html(paginationHtml);
+    }
+
+    // --- 3. 이벤트 핸들러 ---
+    // 강제 중지
+    $(document).on('click', '#stop-btn', function() {
+        if (confirm('정말로 현재 진행 중인 재학습을 중지하시겠습니까?')) {
+            $.post('/api/stop_retraining', function(response) {
+                showToast(response.message, response.status);
+                // 즉시 상태를 다시 한번 체크
+                checkRetrainingStatus();
+            }).fail(function(xhr) {
+                showToast(xhr.responseJSON.message || '작업 중지 중 오류 발생', 'error');
+            });
+        }
+    });
+    // 이력 삭제
+    $(document).on('click', '.delete-job-btn', function() {
+        const jobId = $(this).data('job-id');
+        if (confirm(`작업 ID ${jobId} 이력을 정말로 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다!`)) {
+            $.post(`/api/delete_job/${jobId}`, function(response) {
+                showToast(response.message, response.status);
+                // 💡 [핵심 수정] 1.5초 후에 페이지를 새로고침하여
+                //    사용자가 메시지를 읽을 시간을 줍니다.
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500); 
+            }).fail(function(xhr) {
+                showToast(xhr.responseJSON.message || '삭제 중 오류 발생', 'error');
+            });
+        }
+    });
+    // 날짜 필터 조회
+    $('#filter-btn').on('click', function() {
+        const fromDate = $('#from_date').val();
+        const toDate = $('#to_date').val();
+        window.location.href = `/admin/model?from_date=${fromDate}&to_date=${toDate}`;
+    });
+    // 페이지네이션 클릭
+    $(document).on('click', '.pagination a', function(e) {
+        e.preventDefault();
+        const page = $(this).data('page');
+        if(page){
+            const fromDate = $('#from_date').val();
+            const toDate = $('#to_date').val();
+            window.location.href = `/admin/model?page=${page}&from_date=${fromDate}&to_date=${toDate}`;
+        }
+    });
+
+    // --- 4. 초기화 ---
+    checkRetrainingStatus();
+    renderPagination();
+});
+</script>
+{% endblock %}

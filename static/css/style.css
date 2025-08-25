@@ -696,12 +696,13 @@ input[readonly]:not(.datepicker-input) {
 }
 
 /*--------------------------------------Toast Notification--------------------------------------------------*/
-#toast-notification {
+#toast-notification, #toast-notification.success {
   position: fixed;
   top: 80px;
   left: 50%;
   transform: translateX(-50%);
   background: linear-gradient(to bottom right, #17a2b8 20%, #467a85, #555);
+  /* background: linear-gradient(to bottom right, #17a2b8, #467a85); */
   color: white;
   padding: 15px 40px 15px 20px;
   border-radius: 8px;
@@ -714,6 +715,19 @@ input[readonly]:not(.datepicker-input) {
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.3s, visibility 0.3s, top 0.3s;
+}
+
+/* 🚀 [신규] 성공(success) 및 오류(error) 상태에 대한 배경색 추가 */
+/* #toast-notification.success {
+  background: linear-gradient(to bottom right, #28a796, #218872); /* 녹색 계열
+} */
+#toast-notification.error {
+  background: linear-gradient(to bottom right, #dc3545, #c82333); /* 붉은색 계열 */
+}
+
+/* 🚀 [신규] 특정 탭에서만 보이는 컬럼을 위한 스타일 */
+.unsupervised-only {
+    display: none; /* 기본적으로 이 클래스를 가진 요소는 숨김 */
 }
 
 /* ✨ JavaScript로 'show' 클래스가 추가될 때의 상태 (보임) */
@@ -848,6 +862,266 @@ input[readonly]:not(.datepicker-input) {
     font-weight: normal;
 }
 
+/* ================================== 업로드 진행률 오버레이 ================================== */
+
+#upload-progress-overlay {
+  position: fixed; /* 화면 전체에 고정 */
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6); /* 반투명 검은색 배경 */
+  z-index: 2000; /* 다른 모든 요소들 위에 표시 */
+  display: none; /* 평소에는 숨김 */
+  justify-content: center;
+  align-items: center;
+}
+
+.progress-box {
+  background-color: white;
+  padding: 30px 40px;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+  text-align: center;
+  width: 320px;
+}
+
+/* CSS로 만드는 로딩 스피너 애니메이션 */
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3; /* Light grey */
+  border-top: 4px solid #3498db; /* Blue */
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+#progress-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 15px;
+}
+
+/* 진행률 표시줄의 배경 (테두리) */
+.progress-bar-container {
+  width: 100%;
+  background-color: #e0e0e0;
+  border-radius: 5px;
+  overflow: hidden; /* 내부 바가 둥근 모서리를 넘지 않도록 */
+}
+
+/* 실제 진행률을 나타내는 파란색 바 */
+#progress-bar {
+  width: 0%; /* JS로 이 너비를 조절합니다 */
+  height: 20px;
+  background-color: #3498db;
+  text-align: center;
+  line-height: 20px;
+  color: white;
+  border-radius: 5px;
+  transition: width 0.2s ease-in-out; /* 부드럽게 늘어나는 효과 */
+}
+
+/* ================================== 페이지네이션 ================================== */
+#pagination-controls {
+  display: flex;
+  justify-content: center;
+  margin-top: 25px;
+}
+.pagination {
+  display: inline-flex;
+  list-style-type: none;
+  padding: 0;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.pagination .page-item {
+  margin: 0;
+}
+.pagination .page-link {
+  color: #337ab7;
+  padding: 8px 12px;
+  text-decoration: none;
+  border: 1px solid #ddd;
+  margin-left: -1px; /* 테두리 겹침 방지 */
+  background-color: #fff;
+}
+.pagination .page-item:first-child .page-link {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+.pagination .page-item:last-child .page-link {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+.pagination .page-item.active .page-link {
+  z-index: 2;
+  color: #fff;
+  background-color: #337ab7;
+  border-color: #337ab7;
+}
+.pagination .page-item.disabled .page-link {
+  color: #777;
+  pointer-events: none;
+  cursor: auto;
+  background-color: #fff;
+  border-color: #ddd;
+}
+.pagination .page-link:hover {
+  background-color: #eee;
+}
+
+/* ================================== 도움말 아이콘 및 팝오버 ================================== */
+.help-icon {
+  color: #007bff;
+  cursor: pointer;
+  margin-left: 4px;
+  font-size: 0.9em;
+  transition: transform 0.2s;
+}
+.help-icon:hover {
+  transform: scale(1.2);
+}
+
+#help-popover {
+  display: none; /* 평소에는 숨김 */
+  position: absolute; /* 아이콘 위치를 기준으로 위치 결정 */
+  background-color: #333;
+  color: white;
+  padding: 15px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 2001; /* 로딩창보다도 위에 표시 */
+  width: 300px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+#popover-content h4 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: #17a2b8; /* 포인트 색상 */
+  border-bottom: 1px solid #555;
+  padding-bottom: 8px;
+}
+
+#popover-content p {
+  margin: 0;
+}
+#popover-content strong {
+  color: #ffc107;
+}
+
+#popover-close {
+  position: absolute;
+  top: 5px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+}
+#popover-close:hover {
+  color: white;
+}
+
+/* ================================== 탭 UI 스타일 ================================== */
+.tab-container {
+  margin-bottom: 20px;
+  border-bottom: 2px solid #ddd;
+}
+.tab-btn {
+  padding: 10px 20px;
+  border: none;
+  background-color: transparent;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #888;
+  border-bottom: 3px solid transparent; /* 비활성 상태의 밑줄 */
+  transition: all 0.2s ease-in-out;
+}
+.tab-btn:hover {
+  background-color: #f5f5f5;
+  color: #333;
+}
+.tab-btn.active {
+  color: #007bff;
+  border-bottom-color: #007bff; /* 활성 상태의 밑줄 */
+}
+
+/* 🚀 [최종 수정] 기존 .controls 스타일을 이 블록으로 완전히 교체해주세요. */
+.controls {
+  display: flex; /* Flexbox 레이아웃 활성화 */
+  align-items: center; /* 세로 중앙 정렬 */
+  padding: 10px 15px; /* 내부 여백 조정 */
+  background-color: #afafaf; /* 배경색 */
+  border-bottom: 1px solid #dee2e6;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* 🚀 [신규] 컨트롤 바 내부 그룹 스타일 */
+.controls .filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 요소 간 간격 */
+}
+
+.controls .action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 요소 간 간격 */
+  margin-left: auto; /* 💡 핵심: 이 그룹을 오른쪽 끝으로 밀어냅니다. */
+}
+
+#reclassify-selected-btn {
+  background-color: #fff;
+  color: #000;
+}
+
+.status-badge {
+  /* 💡 [수정] padding과 line-height를 조절하여 보기 좋게 만듭니다. */
+  padding: 2px 12px; /* 상하 여백을 줄이고, 좌우 여백을 늘림 */
+  border-radius: 12px;
+  color: white;
+  font-weight: bold;
+  line-height: 1.5; /* 텍스트 세로 중앙 정렬 */
+}
+.status-pending { background-color: #6c757d; }
+.status-running { background-color: #007bff; }
+.status-completed { background-color: #28a745; }
+.status-failed { background-color: #dc3545; }
+/* 🚀 [신규] 취소 상태에 대한 스타일 추가 */
+.status-canceled { background-color: #ffc107; color: #212529; }
+
+/* 🚀 [신규] 모델 관리 페이지 UI 개선을 위한 스타일 */
+.retraining-status-section p {
+    margin-bottom: 10px; /* 상태, 최종 결과, 로그 텍스트의 상하 간격을 넓힘 */
+}
+.job-history-table {
+    width: 100%;
+    margin-top: 20px;
+    border-collapse: collapse;
+}
+.job-history-table th, .job-history-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: center;
+}
+.job-history-table th {
+    background-color: #f8f9fa;
+}
+
 /* ================================== 반응형 웹 디자인 ================================== */
 
 @media (max-width: 992px) {
@@ -950,15 +1224,21 @@ input[readonly]:not(.datepicker-input) {
   }
 
   /* 목록: 검색 조건 영역 */
-  /* 검색 컨트롤 전체를 감싸는 부모(.controls) 스타일 */
+  /* 🚀 [수정] 목록 페이지 컨트롤 바에 대한 반응형 스타일 */
   .controls {
-    display: flex; /* 플렉스박스 레이아웃 활성화 */
-    flex-wrap: wrap; /* 공간이 부족하면 자식 요소들이 자동으로 줄바꿈됨 */
-    justify-content: flex-start; /* 항목들을 왼쪽부터 정렬 */
-    align-items: center; /* 항목들을 세로 중앙에 보기 좋게 정렬 */
-    gap: 10px 15px; /* 세로 10px, 가로 15px 간격을 주어 '옹기종기' 문제 해결 */
-    padding: 20px; /* 컨테이너 자체에 충분한 안쪽 여백을 추가 */
-    border-radius: 5px; /* 모서리를 살짝 둥글게 */
+    flex-direction: column; /* 그룹들을 세로로 쌓음 */
+    align-items: stretch; /* 그룹들이 가로로 꽉 차도록 함 */
+    gap: 15px; /* 그룹 사이의 간격 */
+  }
+
+  .controls .filter-group,
+  .controls .action-group {
+    flex-wrap: wrap; /* 그룹 내부의 아이템들이 줄바꿈되도록 함 */
+    justify-content: flex-start; /* 줄바꿈 시 왼쪽부터 정렬 */
+  }
+
+  .controls .action-group {
+    justify-content: flex-end; /* 데이터 관리 버튼들은 오른쪽 정렬 유지 */
   }
   /* 컨트롤 내부의 모든 자식 요소(input, button 등)의 기본 마진 제거 */
   .controls > * {

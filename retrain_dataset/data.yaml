@@ -1,0 +1,6 @@
+
+train: D:\Flask\XrayDetection_Project\retrain_dataset\images\train
+val: D:\Flask\XrayDetection_Project\retrain_dataset\images\train # 간단하게 train set을 val로도 사용
+
+nc: 2
+names: ['BAD', 'GOOD']

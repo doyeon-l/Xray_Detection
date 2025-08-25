@@ -26,6 +26,11 @@
         <canvas id="overallChart"></canvas>
     </div>
 
+    <!-- 🚀 [신규] 모델 성능 모니터링 섹션 -->
+    <div class="chart-section performance-section">
+        <div class="chart-container"><canvas id="performanceChart"></canvas></div>
+    </div>
+
     <div class="dashboard-controls flex-row">
         <span>기간 선택 : </span>
         <input type="text" id="start_date_dash" class="datepicker-input" readonly> ~ 
@@ -58,6 +63,33 @@ $(function() {
         }
         const ctx = document.getElementById(canvasId).getContext('2d');
         chartInstances[canvasId] = new Chart(ctx, chartConfig);
+    }
+
+    // 🚀 [신규] 성능 모니터링 차트 렌더링 함수
+    function renderPerformanceChart() {
+        $.getJSON('/stats/performance_trend', function(data) {
+            const labels = data.map(d => d.week_label);
+            const recall = data.map(d => d.recall);
+            const accuracy = data.map(d => d.accuracy);
+            
+            renderOrUpdateChart('performanceChart', {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: '재현율 (Recall)', data: recall, borderColor: '#dc3545', tension: 0.1, yAxisID: 'y' },
+                        { label: '정확도 (Accuracy)', data: accuracy, borderColor: '#007bff', tension: 0.1, yAxisID: 'y' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5,
+                    plugins: { title: { display: true, text: '📊 주간 모델 성능 추이', font: { size: 16 } } },
+                    scales: {
+                        y: { beginAtZero: true, max: 100, title: { display: true, text: '성능 지표 (%)' } }
+                    }
+                }
+            });
+        });
     }
 
     // --- 데이터 패칭 및 차트 생성 함수들 ---
@@ -167,6 +199,9 @@ $(function() {
     
     updateOverallStatus();
     setInterval(updateOverallStatus, 10000);
+
+    // 🚀 신규 함수 호출
+    renderPerformanceChart();
     
     updateDashboardCharts();
     renderScoreChart();

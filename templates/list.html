@@ -16,6 +16,20 @@
     .note-btn { padding: 3px 6px; font-size: 0.8rem; background-color: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer;}
     .note-btn:hover { background-color: #5a6268; }
     .note-text { font-size: 0.9em; color: #555; }
+
+    /* 🚀 [신규] XAI 버튼 스타일 */
+    .xai-btn {
+        padding: 4px 8px;
+        background-color: #17a2b8;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9em;
+    }
+    .xai-btn:hover { background-color: #138496; }
+    .xai-btn:disabled { background-color: #ccc; cursor: not-allowed; }
+
 	#image-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 1000;}
     #modal-img { max-width: 90%; max-height: 90%; }
 </style>
@@ -24,24 +38,41 @@
 {% block content %}
 <div class="list-section">
   <h2 class=" list_title">분류 이미지 목록</h2>
+
+  <!-- 🚀 [신규] 지도/비지도 탭 UI -->
+  <div class="tab-container">
+      <button class="tab-btn active" data-model="S">지도학습</button>
+      <button class="tab-btn" data-model="U">비지도학습</button>
+  </div>
   
+<!-- 🚀 [최종 수정] controls div의 내부 구조를 아래와 같이 변경합니다. -->
   <div class="controls">
-    기준일: <input type="text" id="from_date" readonly> ~ <input type="text" id="to_date" readonly>
-	<select id="model_filter"><option value="S">지도학습</option><option value="U">비지도학습</option></select> <!--add2 지도,비지도 선택 -->
-    <select id="class_filter"><option value=""> 전체</option><option value="1">GOOD</option><option value="0">BAD</option></select>
-    &nbsp;파일명: <input type="text" id="search_term" placeholder="검색할 파일명 입력...">
-    <button id="search_btn">검색</button>
-    <button id="delete-btn">선택 삭제</button>
-    <a href="#" id="export_btn" class="export-btn">CSV로 내보내기</a>
+    <!-- 1. 왼쪽 그룹 (조회 기능) -->
+    <div class="filter-group">
+      <span>기준일:</span>
+      <input type="text" id="from_date" readonly> ~ <input type="text" id="to_date" readonly>
+      <select id="class_filter"><option value="">전체</option><option value="1">GOOD</option><option value="0">BAD</option></select>
+      <select id="anomaly_filter">
+          <option value="">모든 이상 점수</option>
+          <option value="high">높은 이상 점수만</option>
+      </select>
+      <input type="text" id="search_term" placeholder="파일명 검색...">
+      <button id="search_btn">검색</button>
+      <a href="#" id="export_btn" class="export-btn">CSV로 내보내기</a>
+    </div>
+
+    <!-- 2. 오른쪽 그룹 (데이터 관리 기능) -->
+    <div class="action-group">
+      <span id="reclassified-info" style="font-weight: bold; margin-right: 15px; display: none;"></span>
+      <button id="reclassify-selected-btn">선택 판정 반전</button>
+      <button id="delete-btn" class="btn-delete">선택 삭제</button>
+      <button id="delete-by-date-btn" class="btn-delete">기간 삭제</button>
+      <button id="delete-all-btn" class="btn-delete">전체 삭제</button>
+    </div>
   </div>
 
   <div id="upload_modal">
     <h3>이미지 업로드</h3>
-	<!--add2 지도,비지도 선택 -->
-    <select id ="upload_model_gb">
-      <option value ="S">지도학습</option>
-      <option value ="U">비지도학습</option>  
-    </select>
     기준일:
     <input type="text" id="upload_std_date" readonly>
     <input type="file" id="upload_files" multiple>
@@ -57,27 +88,48 @@
             <th><input type="checkbox" id="check_all"></th>
             <th>이미지</th>
             <th class="sortable" data-column="org_image_name"><span>파일명</span><span class="sort-icon"></span></th>
-            <th class="sortable" data-column="std_date"><span>검출 기준일</span><span class="sort-icon"></span></th>
-            <th class="sortable" data-column="yolo_class"><span>불량 여부</span><span class="sort-icon"></span></th>
+
+            <!-- 🚀 [신규] '모델' 컬럼 추가 -->
+            <th>모델</th>
+            
+            <!-- 🚀 [수정] 도움말 아이콘 추가 -->
+            <th>판정 <i class="fas fa-info-circle help-icon" data-help="prediction"></i></th>
+            <th class="sortable unsupervised-only" data-column="anomaly_score"><span>이상 점수</span> <i class="fas fa-info-circle help-icon" data-help="anomaly"></i><span class="sort-icon"></span></th>
+            
             <th class="sortable" data-column="created_at"><span>업로드 일시</span><span class="sort-icon"></span></th>            
             <th>메모</th>
-            <th>재분류 여부</th>  <!-- 열 추가 -->
             <th>재분류</th>
             <th>수정자</th>
             <th>수정일시</th>
+            
+            <!-- 🚀 [수정] 도움말 아이콘 추가 -->
+            <th>XAI <i class="fas fa-info-circle help-icon" data-help="xai"></i></th>
         </tr>
         </thead>
         <tbody id="result_body"></tbody>
     </table>
   </div>
-</div>
+
+  <!-- 🚀 [신규] 페이지네이션 컨트롤이 렌더링될 영역 -->
+  <div id="pagination-controls"></div>
+
   <div id="image-modal" style="display:none;"><img id="modal-img" src="" /></div>
+
+  <!-- 🚀 [신규] 도움말 팝오버 HTML 구조 (평소에는 숨겨져 있음) -->
+  <div id="help-popover">
+      <div id="popover-content"></div>
+      <!-- <button id="popover-close">&times;</button> -->
+  </div>
+</div>
 
   <script>
     $(function() {
       // --- 상태 관리 변수 ---
       let sortBy = 'created_at';
       let sortOrder = 'DESC';
+      let currentPage = 1; // 🚀 [신규] 현재 페이지 상태를 관리하는 변수
+      const itemsPerPage = 20; // 한 페이지에 표시할 항목 수
+      let currentModelTab = 'S'; // 🚀 [신규] 현재 활성화된 탭을 관리 ('S'가 기본)
 
       // --- 날짜 선택기 초기화 ---
       const today = new Date();
@@ -92,92 +144,253 @@
       $("#upload_std_date").datepicker("setDate", today);
       $("#from_date, #to_date, #upload_std_date").css('cursor', 'pointer');
 
-      // --- 데이터 로드 및 테이블 렌더링 함수 ---
-      function loadList() {
-        const params = {
-          from_date: $('#from_date').val().replace(/-/g, ''),
-          to_date: $('#to_date').val().replace(/-/g, ''),
-          yolo_class: $('#class_filter').val(),
-		      model_gb: $('#model_filter').val(), // 지도학습/비지도학습 선택
-          search_term: $('#search_term').val(),
-          sort_by: sortBy,
-          sort_order: sortOrder
-        };
+      // --- 🚀 [수정] 페이지네이션 렌더링 함수 ---
+      function renderPagination(totalItems) {
+          const totalPages = Math.ceil(totalItems / itemsPerPage);
+          const controls = $('#pagination-controls').empty();
+          if (totalPages <= 1) return; // 1페이지 이하면 렌더링 안함
 
-        $.get('/api/list', params, function(data) {
-          $('#result_body').empty();
-          $('#total_count').text(data.length);
-          $('#export_btn').attr('href', '/api/export?' + $.param(params));
+          let paginationHtml = '<ul class="pagination">';
+          
+          // 이전 페이지 버튼
+          paginationHtml += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${currentPage - 1}">이전</a></li>`;
 
-          $.each(data, function(_, row) {
-            const date = row.std_date;
-            const formattedDate = `${date.substring(0,4)}-${date.substring(4,6)}-${date.substring(6,8)}`;
-            
-            let reclassifyBtn = (row.yolo_class == '1') ?
-                // 20250813 이도연 수정 (불량/정상으로 변경 -> 불량/정상 처리)
-                `<button class="reclassify-btn btn-to-bad" data-id="${row.id}" data-name="${row.org_image_name}" data-new-class="0">불량 처리</button>` :
-                `<button class="reclassify-btn btn-to-good" data-id="${row.id}" data-name="${row.org_image_name}" data-new-class="1">정상 처리</button>`;
-            
-            // is_reclassified 값에 따라 텍스트를 생성합니다. (Yes/No)
-            const reclassifiedText = row.is_reclassified ? '<span style="color:blue; font-weight:bold;">Yes</span>' : 'No';
+          // 페이지 번호 버튼 (현재 페이지 주변 5개만 표시)
+          let startPage = Math.max(1, currentPage - 2);
+          let endPage = Math.min(totalPages, currentPage + 2);
 
-            // 💡 수정된 부분: 이미지 경로를 있는 그대로 사용합니다. 
-            // DB에서 경로를 수정했기 때문에 더 이상 replace가 필요 없습니다.
-            const imagePath = `/${row.image_path}`;
-
-            const tr = `
-              <tr>
-                <td><input type="checkbox" class="row_chk" data-id="${row.id}"></td>
-                <td><img src="${imagePath}" class="thumbnail" data-full="${imagePath}"></td>
-                <td>${row.org_image_name}</td>
-                <td>${formattedDate}</td>
-                <td>${Number(row.yolo_class) === 1 ? '<b style="color:blue">GOOD</b>' : '<b style="color:red">BAD</b>'}</td>
-                <td>${row.created_at}</td>
-                <td>
-                  <button class="note-btn" data-id="${row.id}" data-note="${row.note || ''}" aria-label="메모 열기">
-                    <img src="{{ url_for('static', filename='img/icons/note.png') }}" class="icon-16" alt="">
-                  </button>
-                  <span class="note-text">${row.note || ''}</span>
-                </td>
-                <td>${reclassifiedText}</td>
-                <td>${reclassifyBtn}</td>
-                <td>${row.modified_by || ''}</td>
-                <td>${row.modified_at || ''}</td>
-              </tr>`;
-            $('#result_body').append(tr);
-          });
-        });
-      }
-      
-      // 최초 로드
-      loadList();
-
-      // --- 이벤트 핸들러 ---
-
-      // 검색 버튼 및 Enter 키
-      $('#search_btn').click(loadList);
-      $('#search_term').on('keypress', e => { if (e.which === 13) loadList(); });
-
-      // 정렬
-      $('.sortable').click(function() {
-          const column = $(this).data('column');
-          if (sortBy === column) {
-              sortOrder = (sortOrder === 'ASC') ? 'DESC' : 'ASC';
-          } else {
-              sortBy = column;
-              sortOrder = 'DESC';
+          if (startPage > 1) {
+              paginationHtml += `<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`;
+              if (startPage > 2) paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+          }
+          for (let i = startPage; i <= endPage; i++) {
+              paginationHtml += `<li class="page-item ${i === currentPage ? 'active' : ''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
+          }
+          if (endPage < totalPages) {
+              if (endPage < totalPages - 1) paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+              paginationHtml += `<li class="page-item"><a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a></li>`;
           }
 
-          // 1. 모든 헤더에서 아이콘 텍스트를 지웁니다.
-          $('.sort-icon').text('');
+          // 다음 페이지 버튼
+          paginationHtml += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${currentPage + 1}">다음</a></li>`;
+          paginationHtml += '</ul>';
+          controls.html(paginationHtml);
+      }
+
+      // --- 🚀 [수정] 데이터 로드 및 테이블 렌더링 함수 ---
+      function loadList(page = 1) {
+        currentPage = page;
+        const params = {
+            from_date: $('#from_date').val().replace(/-/g, ''),
+            to_date: $('#to_date').val().replace(/-/g, ''),
+            yolo_class: $('#class_filter').val(),
+            search_term: $('#search_term').val(),
+            model_gb: currentModelTab, // 🚀 [수정] 탭 상태를 API 파라미터로 전송
+            sort_by: sortBy,
+            sort_order: sortOrder,
+            page: currentPage,
+            limit: itemsPerPage
+        };
+
+        $.get('/api/list', params, function(response) {
+            const data = response.data;
+            const totalItems = response.total;
+
+            $('#result_body').empty();
+            $('#total_count').text(totalItems);
+            $('#export_btn').attr('href', '/api/export?' + $.param(params));
+
+            let displayData = data;
+            if ($('#anomaly_filter').val() === 'high') {
+                const anomalyScores = data.map(d => d.anomaly_score).filter(s => s !== null && s !== undefined);
+                const threshold = anomalyScores.length > 0 ? anomalyScores.sort((a, b) => b - a)[Math.floor(anomalyScores.length * 0.05)] : 0.1;
+                displayData = data.filter(d => d.anomaly_score >= threshold && d.yolo_class == '1');
+            }
+
+            $.each(displayData, function(_, row) {
+                // 🚀 [수정 1] 재분류 버튼에 data-name 속성 추가
+                const reclassifyBtn = (row.yolo_class == '1')
+                    ? `<button class="reclassify-btn btn-to-bad" data-id="${row.id}" data-name="${row.org_image_name}" data-new-class="0">불량 처리</button>`
+                    : `<button class="reclassify-btn btn-to-good" data-id="${row.id}" data-name="${row.org_image_name}" data-new-class="1">정상 처리</button>`;
+
+                const anomalyScoreText = (row.anomaly_score != null) ? row.anomaly_score.toFixed(4) : 'N/A';
+                const anomalyStyle = (row.anomaly_score > 0.1) ? 'color: red; font-weight: bold;' : '';
+                const modelText = row.model_gb === 'S' ? '지도' : (row.model_gb === 'U' ? '비지도' : 'N/A');
+
+                // 🚀 [수정 2] 테이블 행(tr)에 수정자, 수정일시 데이터 셀(td) 추가
+                const tr = `
+                  <tr>
+                    <td><input type="checkbox" class="row_chk" data-id="${row.id}"></td>
+                    <td><img src="/${row.image_path}" class="thumbnail" data-full="/${row.image_path}"></td>
+                    <td>${row.org_image_name || ''}</td>
+                    <td><b>${modelText}</b></td>
+                    <td>${Number(row.yolo_class) === 1 ? '<b style="color:blue">GOOD</b>' : '<b style="color:red">BAD</b>'}</td>
+                    <td class="unsupervised-only" style="${anomalyStyle}">${anomalyScoreText}</td>
+
+                    <td>${row.created_at || ''}</td>
+                    <td>
+                      <button class="note-btn" data-id="${row.id}" data-note="${row.note || ''}">메모</button>
+                      <span class="note-text">${row.note || ''}</span>
+                    </td>
+                    <td>${reclassifyBtn}</td>
+                    <td>${row.modified_by || ''}</td>
+                    <td>${row.modified_at || ''}</td>
+                    <td><button class="xai-btn" data-id="${row.id}">보기</button></td>
+                  </tr>`;
+                $('#result_body').append(tr);
+            });
+
+            // 🚀 [수정] 테이블이 다시 그려진 후, 현재 탭 상태에 맞게 컬럼을 다시 숨기거나 보여줍니다.
+            if (currentModelTab === 'S') {
+                $('.unsupervised-only').hide();
+            } else {
+                $('.unsupervised-only').show();
+            }
+
+            renderPagination(totalItems);
+        }).fail(function() {
+            alert("데이터를 불러오는 데 실패했습니다. 서버 상태를 확인해주세요.");
+        });
+      }
+
+      // --- 이벤트 핸들러 바인딩 ---
+      
+      // 최초 로드
+      loadList(1);
+
+      // 페이지가 처음 로드될 때 '이상 점수' 컬럼을 숨깁니다.
+      $('.unsupervised-only').hide();
+
+      // 🚀 [수정] 탭 클릭 이벤트 핸들러
+      $('.tab-btn').on('click', function() {
+          $('.tab-btn').removeClass('active');
+          $(this).addClass('active');
+          currentModelTab = $(this).data('model');
+
+          const modelName = currentModelTab === 'S' ? '지도학습' : '비지도학습';
+          $('#upload-model-indicator').text(`${modelName} 모델로 업로드`);
+
+          // 🚀 [수정] 탭 상태에 따라 '이상 점수' 컬럼을 제어합니다.
+          if (currentModelTab === 'S') {
+              $('.unsupervised-only').hide(); // 지도학습 탭이면 숨김
+          } else {
+              $('.unsupervised-only').show(); // 비지도학습 탭이면 보임
+          }
           
-          // 2. 현재 클릭된 헤더에만 올바른 아이콘을 설정합니다.
-          $(this).find('.sort-icon').text(sortOrder === 'ASC' ? ' 🔼' : ' 🔽');
-          
-          loadList();
+          // 탭을 바꾸면 필터는 초기화하고 1페이지부터 다시 로드
+          $('#class_filter').val('');
+          $('#anomaly_filter').val('');
+          $('#search_term').val('');
+          loadList(1);
       });
 
-      // 재분류 버튼
+      // 🚀 검색 시에는 항상 1페이지부터 조회
+      $('#search_btn, #anomaly_filter, #class_filter').on('click change', function() { loadList(1); });
+      $('#search_term').on('keypress', e => { if (e.which === 13) loadList(1); });
+      
+      // 🚀 페이지네이션 링크 클릭 이벤트
+      $(document).on('click', '.pagination a', function(e) {
+          e.preventDefault();
+          const page = $(this).data('page');
+          if (page) {
+              loadList(page);
+          }
+      });
+
+      // 테이블 헤더 정렬
+      $('.sortable').click(function() {
+        const column = $(this).data('column');
+        if (sortBy === column) {
+            sortOrder = (sortOrder === 'ASC') ? 'DESC' : 'ASC';
+        } else {
+            sortBy = column;
+            sortOrder = 'DESC';
+        }
+        $('.sort-icon').text('');
+        $(this).find('.sort-icon').text(sortOrder === 'ASC' ? ' 🔼' : ' 🔽');
+        loadList(currentPage); // 현재 페이지에서 정렬
+      });
+
+      // --- [핵심 수정] 업로드 버튼 클릭 이벤트 ---
+      $('#confirm_upload').on('click', function () {
+        const formData = new FormData();
+        const files = $('#upload_files')[0].files;
+        const stdDate = $('#upload_std_date').val().replace(/-/g, '');
+
+        if (!stdDate) { alert('기준일을 선택하세요.'); return; }
+        if (files.length === 0) { alert("업로드할 파일을 선택하세요."); return; }
+
+        formData.append('std_date', stdDate);
+        // 현재 활성화된 탭의 모델 종류를 함께 전송
+        formData.append('model_gb', currentModelTab);
+        for (let i = 0; i < files.length; i++) { formData.append('files', files[i]); }
+
+        const overlay = $('#upload-progress-overlay');
+        const progressBar = $('#progress-bar');
+        const progressText = $('#progress-text');
+
+        progressBar.css('width', '0%').text('');
+        progressText.text('업로드 준비 중...');
+        overlay.css('display', 'flex').hide().fadeIn(200);
+
+        $.ajax({
+            url: '/upload',
+            type: 'POST',
+            data: formData,
+            contentType: false,
+            processData: false,
+            xhr: function() {
+                const xhr = new window.XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function(evt) {
+                    if (evt.lengthComputable) {
+                        const percentComplete = Math.round((evt.loaded / evt.total) * 100);
+                        progressBar.css('width', percentComplete + '%').text(percentComplete + '%');
+                        progressText.text(`업로드 중...`);
+                    }
+                }, false);
+                return xhr;
+            },
+            success: function (response) {
+                if (response.status === 'success') {
+                    progressText.text('업로드 완료!');
+                    setTimeout(() => {
+                        overlay.fadeOut(300);
+                        loadList(1); // 업로드 후 1페이지로 이동
+                    }, 1000);
+                } else {
+                    alert('업로드 중 오류: ' + response.message);
+                    overlay.fadeOut(300);
+                }
+            },
+            error: function () {
+                alert('업로드 중 서버 오류가 발생했습니다.');
+                overlay.fadeOut(300);
+            }
+        });
+      });
+
+      // 🚀 [신규] 재분류 개수를 확인하고 업데이트하는 함수
+      function checkReclassifiedCount() {
+        $.getJSON('/api/reclassified_count', function(data) {
+          const count = data.count;
+          const infoSpan = $('#reclassified-info');
+          if (count > 0) {
+            infoSpan.html(`재분류: <span style="color: #007bff;">${count}</span>건`);
+            infoSpan.show();
+          } else {
+            infoSpan.hide();
+          }
+        });
+      }
+
+      // 🚀 [신규] 재분류 작업이 끝날 때마다 개수를 다시 확인하도록 호출 추가
+      function reclassifyCompleteHandler() {
+        loadList(currentPage);
+        $('#check_all').prop('checked', false);
+        checkReclassifiedCount(); // 👈 개수 새로고침
+      }
+
+      // 개별 재분류 버튼
       $(document).on('click', '.reclassify-btn', function() {
         const itemId = $(this).data('id');
         const itemName = $(this).data('name');
@@ -190,11 +403,15 @@
                 data: JSON.stringify({ id: itemId, new_class: newClass }),
                 success: res => {
                     if (res.status === 'success') {
-                        alert(`'${itemName}' 파일이 성공적으로 변경되었습니다.`);
-                        loadList();
-                    } else { alert('오류: ' + res.message); }
+                        showToast(`'${itemName}' 파일의 판정이 변경되었습니다.`, 'success');
+                        reclassifyCompleteHandler(); // 이 함수 호출 하나로 모든 후속 처리가 끝납니다.
+                    } else {
+                        // 💡 alert() 대신 showToast()를 사용합니다.
+                        showToast('오류: ' + res.message, 'error');
+                    }
                 },
-                error: () => alert('서버 통신 오류가 발생했습니다.')
+                // 🚀 [수정] 실패 토스트 알림 표시
+                error: () => showToast('서버 통신 오류가 발생했습니다.', 'error')
             });
         }
       });
@@ -238,6 +455,76 @@
         }
       });
 
+      // 🚀 [신규] 도움말 내용 정의
+      const helpContent = {
+          prediction: {
+              title: '판정 (Prediction)',
+              text: "지도학습 AI 모델이 이미지를 분석하여 '정상(GOOD)' 또는 '불량(BAD)'으로 내린 **최종 결론**입니다. 사용자가 직접 '재분류' 버튼을 통해 이 판정을 수정할 수 있습니다."
+          },
+          anomaly: {
+              title: '이상 점수 (Anomaly Score)',
+              text: "비지도학습 AI 모델이 계산한 '낯섦'의 정도입니다. 점수가 <strong>높을수록</strong> AI가 보기에 학습된 정상 제품 패턴과 다르다는 의미이며, 알려지지 않은 새로운 유형의 불량일 가능성이 있습니다."
+          },
+          xai: {
+              title: 'XAI (설명 가능한 AI)',
+              text: "'보기' 버튼을 클릭하면 AI가 이미지의 어느 부분을 보고 판정을 내렸는지 <strong>히트맵(Heatmap)</strong>으로 시각화하여 보여줍니다. 이를 통해 AI의 판단 근거를 이해하고 신뢰도를 평가할 수 있습니다."
+          }
+      };
+
+      // 🚀 도움말 아이콘에 마우스 호버(mouseover/mouseleave) 이벤트
+      let popoverTimeout; // 팝오버가 바로 사라지지 않도록 하기 위한 타이머 변수
+
+      // 아이콘에 마우스를 올렸을 때
+      $(document).on('mouseover', '.help-icon', function(e) {
+        clearTimeout(popoverTimeout);
+        
+        const helpKey = $(this).data('help');
+        const content = helpContent[helpKey];
+        const popover = $('#help-popover');
+
+        $('#popover-content').html(`<h4>${content.title}</h4><p>${content.text}</p>`);
+        
+        const iconPos = $(this).offset();
+        const popoverWidth = popover.outerWidth();
+        const windowWidth = $(window).width();
+
+        // 🚀 [핵심 로직 추가] 팝오버의 left 위치를 동적으로 계산합니다.
+        let popoverLeft = iconPos.left - (popoverWidth / 2) + ($(this).width() / 2);
+
+        // 만약 팝오버가 화면 오른쪽을 벗어난다면, 위치를 조정합니다.
+        if (popoverLeft + popoverWidth > windowWidth - 20) { // 20px의 여백
+            popoverLeft = windowWidth - popoverWidth - 20;
+        }
+
+        // 만약 팝오버가 화면 왼쪽을 벗어난다면, 위치를 조정합니다.
+        if (popoverLeft < 10) { // 10px의 여백
+            popoverLeft = 10;
+        }
+
+        popover.css({
+            top: iconPos.top + 25 + 'px',
+            left: popoverLeft + 'px' // 계산된 left 값을 적용합니다.
+        }).fadeIn(200);
+      });
+
+      // 아이콘에서 마우스가 벗어났을 때
+      $(document).on('mouseleave', '.help-icon', function() {
+          // 바로 사라지지 않고, 0.3초의 유예 시간을 둠 (팝오버 위로 마우스를 옮길 시간을 주기 위함)
+          popoverTimeout = setTimeout(function() {
+              $('#help-popover').fadeOut(200);
+          }, 300);
+      });
+
+      // 팝오버 창 자체에 마우스를 올렸을 때는 사라지지 않도록 처리
+      $('#help-popover').on('mouseover', function() {
+          clearTimeout(popoverTimeout); // 사라지는 타이머 취소
+      });
+
+      // 팝오버 창에서 마우스가 벗어나면 즉시 사라지도록 처리
+      $('#help-popover').on('mouseleave', function() {
+          $(this).fadeOut(200);
+      });
+
       // --- 나머지 기존 이벤트 핸들러들 ---
       $('#check_all').click(function() {
         $('.row_chk').prop('checked', $(this).is(':checked'));
@@ -253,57 +540,126 @@
             type: 'POST',
             contentType: 'application/json',
             data: JSON.stringify({ ids }),
-            success: loadList
+            success: function(res) { // 💡 [핵심 수정] success 콜백 함수를 확장합니다.
+                // 1. 목록을 1페이지로 새로고침합니다.
+                loadList(1);
+                // 2. '전체 선택' 체크박스를 해제합니다.
+                $('#check_all').prop('checked', false);
+            },
+            error: function() {
+                alert("삭제 중 오류가 발생했습니다.");
+            }
           });
         }
       });
-      
-      $('#confirm_upload').on('click', function () {
-		    const formData = new FormData();
-        const files = $('#upload_files')[0].files;
-        const stdDate = $('#upload_std_date').val().replace(/-/g, '');
-		    const modelGb = $('#upload_model_gb').val(); // S: 지도학습, U: 비지도학습 
-        if (files.length === 0) return alert("업로드할 파일을 선택하세요.", 'info');
-        
-        if (!stdDate) {
-          alert('기준일을 선택하세요.');
-          return;
-        }
 
-        if (files.length === 0) {
-          alert('업로드할 파일을 선택하세요.');
-          return;
-        }
-
-        formData.append('std_date', stdDate);
-        formData.append('model_gb', modelGb); //formData에 model_gb 추가
-        for (let i = 0; i < files.length; i++) {
-          formData.append('files', files[i]);
-        }
-
-        $.ajax({
-          url: '/upload',
-          type: 'POST',
-          data: formData,
-          contentType: false,
-          processData: false,
-          contentType: false,
-          success: function (response) {
-            if (response.status === 'success') {
-              alert('이미지 업로드가 완료되었습니다.');
-			  $('#model_filter').val(modelGb); // 업로드 후 모델 종류 필드 업데이트
-              loadList();
-            } else {
-              alert('업로드 중 오류 발생: ');
-            }
-          },
-          error: function (xhr) {
-            alert('업로드 중 오류 발생: ');
+      // 🚀 [신규] 기간별 삭제 버튼 클릭 이벤트
+      $('#delete-by-date-btn').on('click', function() {
+          const fromDate = $('#from_date').val().replace(/-/g, '');
+          const toDate = $('#to_date').val().replace(/-/g, '');
+          
+          if (confirm(`정말로 ${fromDate}부터 ${toDate}까지의 모든 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다!`)) {
+              $.ajax({
+                  url: '/api/delete_by_date',
+                  type: 'POST',
+                  contentType: 'application/json',
+                  data: JSON.stringify({ from_date: fromDate, to_date: toDate }),
+                  success: function(res) {
+                      if (res.status === 'success') {
+                          alert(`${res.deleted_count}건의 데이터가 삭제되었습니다.`);
+                          loadList(1); // 1페이지로 새로고침
+                      }
+                  },
+                  error: function() { alert('삭제 중 오류가 발생했습니다.'); }
+              });
           }
-        });
       });
 
-      loadList();
-    });
+      // 🚀 [신규] 전체 삭제 버튼 클릭 이벤트
+      $('#delete-all-btn').on('click', function() {
+          if (prompt("모든 데이터를 영구적으로 삭제하려면 '전체삭제'를 입력하세요.") === '전체삭제') {
+              $.ajax({
+                  url: '/api/delete_all',
+                  type: 'POST',
+                  success: function(res) {
+                      if (res.status === 'success') {
+                          alert('모든 데이터가 삭제되었습니다.');
+                          loadList(1); // 1페이지로 새로고침
+                      }
+                  },
+                  error: function() { alert('삭제 중 오류가 발생했습니다.'); }
+              });
+          } else {
+              alert('입력이 일치하지 않아 작업을 취소했습니다.');
+          }
+      });
+
+      // 🚀 [신규] XAI 버튼 클릭 이벤트 핸들러
+      $(document).on('click', '.xai-btn', function() {
+          const btn = $(this);
+          const itemId = btn.data('id');
+          btn.text('생성중...').prop('disabled', true);
+
+          $.get(`/api/grad_cam/${itemId}`, function(response) {
+              if (response.status === 'success') {
+                  $('#modal-img').attr('src', `/${response.xai_path}?t=${new Date().getTime()}`); // 캐시 방지
+                  $('#image-modal').css('display', 'flex').fadeIn();
+              } else {
+                  alert('XAI 이미지 생성 실패: ' + response.message);
+              }
+          }).fail(function() {
+              alert('서버 오류로 XAI 이미지를 가져올 수 없습니다.');
+          }).always(function() {
+              btn.text('보기').prop('disabled', false);
+          });
+      });
+
+      // 🚀 [신규] 선택 항목 일괄 판정 전환 버튼 클릭 이벤트
+      $('#reclassify-selected-btn').on('click', function() {
+          const checkedRows = $('.row_chk:checked');
+          if (checkedRows.length === 0) {
+              // 💡 alert() 대신 showToast()를 사용할 수도 있습니다.
+              showToast("판정을 전환할 항목을 먼저 선택해주세요.", 'error');
+              return;
+          }
+
+          let itemsToReclassify = [];
+          checkedRows.each(function() {
+              const row = $(this).closest('tr');
+              const id = $(this).data('id');
+              const currentStatusText = row.find('td:nth-child(5)').text();
+              const currentClass = currentStatusText.includes('GOOD') ? '1' : '0';
+              itemsToReclassify.push({
+                  id: id,
+                  current_class: currentClass
+              });
+          });
+
+          if (confirm(`${itemsToReclassify.length}개 항목의 판정을 전환하시겠습니까?`)) {
+              $.ajax({
+                  url: '/api/reclassify_batch',
+                  type: 'POST',
+                  contentType: 'application/json',
+                  data: JSON.stringify({ items: itemsToReclassify }),
+                  success: function(res) {
+                      if (res.status === 'success') {
+                        showToast(`${itemsToReclassify.length}개 항목의 판정이 전환되었습니다.`, 'success');
+                        reclassifyCompleteHandler(); // 이 함수 호출 하나로 모든 후속 처리가 끝납니다.
+                      } else {
+                        showToast('일괄 처리 중 오류가 발생했습니다: ' + res.message, 'error');
+                      }
+                  },
+                  // 🚀 [수정] 실패 토스트 알림 표시
+                  error: function() {
+                    showToast('서버 통신 오류가 발생했습니다.', 'error');
+                  }
+              });
+          }
+      });
+
+      // 🚀 [신규] 페이지가 처음 로드될 때도 개수를 확인
+      loadList(1);
+      checkReclassifiedCount();
+    }); // <-- $(function() { 의 닫는 부분
   </script>
 {% endblock %}
