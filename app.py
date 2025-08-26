@@ -15,27 +15,25 @@ from torchvision import transforms
 import torch.nn.functional as nn
 from PIL import Image
 from ultralytics import YOLO
-from pytorch_msssim import ms_ssim # pip install pytorch-msssim
-from efficientnet_pytorch import EfficientNet  # pip install efficientnet_pytorch
-from model.models import EfficientNetAutoencoder # 👈 직접 작성한 모델 클래스 import 필요
-from model.classifier import EfficientNetClassifier
-# from torchvision.models import efficientnet_b2, EfficientNet_B2_Weights
+from pytorch_msssim import ms_ssim
+from efficientnet_pytorch import EfficientNet
+from model.models import EfficientNetClassifier, EfficientNetAutoencoder  # 직접 작성한 모델 클래스 import
 from model.models import MSSSIMLoss
 from functools import wraps
 from flask import abort
-import subprocess  # 👈 [기능 3] 재학습 스크립트 실행을 위해 추가
+import subprocess  # 재학습 스크립트 실행을 위한 import
 
-# 👈 [기능 2] XAI (Grad-CAM) 라이브러리 추가
+# XAI (Grad-CAM) 라이브러리
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.grad_cam import GradCAM
 import ttach as tta
 
-import psutil # 🚀 프로세스 제어를 위해 psutil 라이브러리가 필요합니다 (pip install psutil)
+import psutil # 프로세스 제어
 
 app = Flask(__name__)
 uploadPath = './static/upload'
 modelPath = './model'
-xaiResultPath = './static/xai_results' # 👈 [기능 2] XAI 결과 저장 폴더
+xaiResultPath = './static/xai_results'  # XAI 결과 저장 폴더
 
 # XAI 결과 폴더가 없으면 생성
 if not os.path.exists(xaiResultPath):
@@ -82,11 +80,11 @@ def load_user(user_id):
     conn.close()
     if user_data:
         return User(id=user_data['id'], userid=user_data['userid'], password_hash=user_data['password_hash'], 
-                    name=user_data['name'], email=user_data['email'], 
-                    company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'])
+            name=user_data['name'], email=user_data['email'], 
+            company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'])
     return None
 
-# --- 모델 로드 ---
+# 모델 로드
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 지도학습 분류 모델 (EfficientNet-B3)
@@ -108,7 +106,7 @@ def get_db_connection():
         charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor
     )
 
-def get_transform(size=300): # B3 기준 300
+def get_transform(size=300):  # B3 기준 300
     return transforms.Compose([
         transforms.Resize((size, size)),
         transforms.ToTensor(),
@@ -121,13 +119,13 @@ def predict_with_classifier(model, input_tensor):
         output = model(input_tensor)
         probabilities = torch.softmax(output, dim=1)
         predicted_class_index = torch.argmax(probabilities).item()
-        score = probabilities[0, predicted_class_index].item() # 예측된 클래스의 확률을 점수로 사용
+        score = probabilities[0, predicted_class_index].item()  # 예측된 클래스의 확률을 점수로 사용
     return "GOOD" if predicted_class_index == 1 else "BAD", score
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
 
-# --- [수정] 업로드 및 추론 라우트 ---
+# 업로드 및 추론 라우트
 @app.route('/upload', methods=['POST'])
 @login_required
 def upload_files():
@@ -152,16 +150,16 @@ def upload_files():
             score, anomaly_score = 0.0, None
 
             if model_gb == 'S':
-                # 🚀 [핵심 수정] YOLO 객체 탐지 모델의 결과 처리 로직으로 변경
+                # YOLO 객체 탐지 모델의 결과 처리 로직으로 변경
                 yolo_results = yolo_model.predict(source=filepath, verbose=False)
 
-                # 탐지된 객체(Box)의 개수를 확인합니다.
+                # 탐지된 객체(Box)의 개수 확인
                 num_detections = len(yolo_results[0].boxes)
 
-                # 💡 [핵심 수정] 신뢰도 임계값 변수 추가
-                confidence_threshold = 0.5 # 50% 신뢰도
+                # 신뢰도 임계값 변수 추가
+                confidence_threshold = 0.5  # 50% 신뢰도
 
-                # 💡 [진단 코드 추가] 터미널(콘솔)에서 탐지 결과를 확인합니다.
+                # 터미널(콘솔)에서 탐지 결과 확인
                 print(f"--- [Debug] Image: {org_image_name} ---")
                 print(f"Detections found: {num_detections}")
                 if num_detections > 0:
@@ -169,7 +167,7 @@ def upload_files():
                     print(f"Top detection confidence: {top_confidence:.4f}")
                 print("-------------------------------------------")
 
-                # 💡 [핵심 수정] 탐지된 객체가 있고, 그 신뢰도가 임계값보다 높은 경우에만 BAD로 판정
+                # 탐지된 객체가 있고, 그 신뢰도가 임계값보다 높은 경우에만 BAD로 판정
                 if num_detections > 0 and yolo_results[0].boxes.conf[0].item() > confidence_threshold:
                     initial_prediction = "BAD"
                     yolo_class = '0'
@@ -184,7 +182,6 @@ def upload_files():
                 effnet_class = initial_prediction
 
             elif model_gb == 'U':
-                # 비지도학습 로직은 기존과 동일합니다.
                 transform = get_transform(size=224)
                 input_tensor = transform(img_pil).unsqueeze(0).to(device)
                 with torch.no_grad():
@@ -192,7 +189,7 @@ def upload_files():
                     reconstruction_error = nn.mse_loss(reconstructed, input_tensor).item()
 
                 anomaly_score = reconstruction_error
-                # 💡 이상 점수 임계값은 모델 성능에 따라 조정이 필요할 수 있습니다.
+                # 이상 점수 임계값은 모델 성능에 따라 조정이 필요할 수 있다.
                 threshold = 0.6
                 initial_prediction = "GOOD" if anomaly_score < threshold else "BAD"
                 yolo_class = '1' if initial_prediction == 'GOOD' else '0'
@@ -200,7 +197,7 @@ def upload_files():
                 # 점수는 (1 - 이상 점수)로 변환하여 0~1 사이 값으로 표시
                 score = max(0.0, 1.0 - anomaly_score)
 
-                # 💡 [진단 코드 추가] 터미널(콘솔)에서 비지도학습 탐지 결과를 확인합니다.
+                # 터미널(콘솔)에서 비지도학습 탐지 결과 확인
                 print(f"--- [Debug Unsupervised] Image: {org_image_name} ---")
                 print(f"Anomaly Score (Reconstruction Error): {anomaly_score:.4f}")
                 print(f"Threshold: {threshold}")
@@ -221,13 +218,12 @@ def upload_files():
 
     return jsonify({'status': 'success', 'results': results})
 
-# --- 🚀 [신규] XAI (Grad-CAM) 생성 API ---
+# XAI (Grad-CAM) 생성 API
 @app.route('/api/grad_cam/<int:item_id>', methods=['GET'])
 @login_required
 def generate_grad_cam(item_id):
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        # 💡 [수정] 이제 model_gb 컬럼도 함께 조회합니다.
         cursor.execute("SELECT image_path, xai_image_path, model_gb FROM classified_objects WHERE id = %s", (item_id,))
         item = cursor.fetchone()
     conn.close()
@@ -245,9 +241,9 @@ def generate_grad_cam(item_id):
         
         visualization = None # 시각화 결과를 담을 변수
 
-        # 💡 [핵심] 모델 구분에 따라 다른 XAI 로직을 실행
+        # 모델 구분에 따라 다른 XAI 로직을 실행
         if item['model_gb'] == 'S':
-            # --- 1. 지도학습 모델: Grad-CAM (기존 로직) ---
+            # ----- 1. 지도학습 모델: Grad-CAM -----
             img_pil_resized = img_pil.resize((300, 300))
             rgb_img = np.array(img_pil_resized, dtype=np.float32) / 255
             transform = get_transform(size=300)
@@ -260,7 +256,7 @@ def generate_grad_cam(item_id):
             visualization = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
 
         elif item['model_gb'] == 'U':
-            # --- 2. 비지도학습 모델: 복원 오차 맵 (신규 로직) ---
+            # --- 2. 비지도학습 모델: 복원 오차 맵 ---
             transform = get_transform(size=224)
             input_tensor = transform(img_pil).unsqueeze(0).to(device)
             
@@ -273,7 +269,7 @@ def generate_grad_cam(item_id):
             
             # 픽셀 단위로 차이를 계산 (오차 맵)
             error_map = np.abs(original_img_np - reconstructed_img_np)
-            error_map_gray = np.mean(error_map, axis=2) # 흑백으로 변환
+            error_map_gray = np.mean(error_map, axis=2)  # 흑백으로 변환
             
             # 히트맵 생성
             heatmap = cv2.normalize(error_map_gray, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
@@ -284,7 +280,7 @@ def generate_grad_cam(item_id):
             
             # 원본 이미지와 히트맵을 합성
             superimposed_img = cv2.addWeighted(heatmap, 0.5, original_img_display, 0.5, 0)
-            visualization = cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB) # PIL 저장을 위해 RGB로 변환
+            visualization = cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB)  # PIL 저장을 위해 RGB로 변환
 
         if visualization is not None:
             xai_filename = f"xai_{os.path.basename(image_path)}"
@@ -299,14 +295,14 @@ def generate_grad_cam(item_id):
 
             return jsonify({'status': 'success', 'xai_path': xai_filepath})
         else:
-             return jsonify({'status': 'error', 'message': '해당 모델에 대한 XAI를 생성할 수 없습니다.'}), 500
+            return jsonify({'status': 'error', 'message': '해당 모델에 대한 XAI를 생성할 수 없습니다.'}), 500
 
     except Exception as e:
         print(f"XAI 이미지 생성 중 오류 발생: {e}")
         return jsonify({'status': 'error', 'message': f'XAI 이미지 생성 중 오류가 발생했습니다: {e}'}), 500
 
 
-# 🚀 [신규] 성능 모니터링 API ---
+# 성능 모니터링 API
 @app.route('/stats/performance_trend')
 @login_required
 def stats_performance_trend():
@@ -315,8 +311,8 @@ def stats_performance_trend():
             YEARWEEK(created_at, 1) AS year_week,
             COUNT(id) AS total_count,
             SUM(CASE WHEN initial_prediction = 'GOOD' AND yolo_class = '1' THEN 1
-                     WHEN initial_prediction = 'BAD' AND yolo_class = '0' THEN 1
-                     ELSE 0 END) AS correct_count,
+                WHEN initial_prediction = 'BAD' AND yolo_class = '0' THEN 1
+                ELSE 0 END) AS correct_count,
             SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) AS actual_bad,
             SUM(CASE WHEN initial_prediction = 'BAD' AND yolo_class = '0' THEN 1 ELSE 0 END) AS true_positives
         FROM classified_objects
@@ -330,7 +326,7 @@ def stats_performance_trend():
         cursor.execute(query)
         data = cursor.fetchall()
         
-        # 💡 [핵심 수정] fetchall()이 반환하는 튜플(tuple)을 리스트(list)로 변환합니다.
+        # fetchall()이 반환하는 튜플(tuple)을 리스트(list)로 변환
         data = list(data)
 
         for i, row in enumerate(data):
@@ -347,14 +343,14 @@ def stats_performance_trend():
     data.reverse()
     return jsonify(data)
     
-# --- 🚀 [신규] 모델 재학습 트리거 API ---
+# 모델 재학습 트리거 API
 @app.route('/admin/retrain_model', methods=['POST'])
 @admin_required
 def retrain_model():
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            # 💡 [수정] 이미 실행 중인 작업이 있는지 확인
+            # 이미 실행 중인 작업이 있는지 확인
             cursor.execute("SELECT id FROM retraining_jobs WHERE status = 'RUNNING' OR status = 'PENDING'")
             if cursor.fetchone():
                 flash('이미 재학습 작업이 진행 중입니다.', 'warning')
@@ -367,7 +363,7 @@ def retrain_model():
             # train.py를 백그라운드 프로세스로 실행
             process = subprocess.Popen([sys.executable, 'train.py', '--job_id', str(job_id)])
             
-            # 💡 [신규] 생성된 프로세스의 PID를 DB에 즉시 저장
+            # 생성된 프로세스의 PID를 DB에 즉시 저장
             cursor.execute("UPDATE retraining_jobs SET process_id = %s WHERE id = %s", (process.pid, job_id))
             conn.commit()
 
@@ -380,14 +376,14 @@ def retrain_model():
     return redirect(url_for('model_management'))
 
 
-# --- 🚀 [신규] 재학습 중지 API ---
+# 재학습 중지 API
 @app.route('/api/stop_retraining', methods=['POST'])
 @admin_required
 def stop_retraining_job():
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            # 현재 실행중인 작업의 PID를 찾음
+            # 현재 실행중인 작업의 PID를 찾음.
             cursor.execute("SELECT id, process_id FROM retraining_jobs WHERE status = 'RUNNING' ORDER BY id DESC LIMIT 1")
             job = cursor.fetchone()
 
@@ -416,7 +412,7 @@ def stop_retraining_job():
         if conn:
             conn.close()
 
-# --- 🚀 [신규] 재학습 상태 확인 API ---
+# 재학습 상태 확인 API
 @app.route('/api/retraining_status')
 @admin_required
 def get_retraining_status():
@@ -441,9 +437,9 @@ def get_retraining_status():
 def index():
     return render_template('index.html')
 
-# --- list.html 렌더링 ---
+# list.html 렌더링
 @app.route('/list')
-@login_required # 👈 이제 목록 페이지는 로그인이 필요합니다.
+@login_required
 def list_page():
     return render_template('list.html')
 
@@ -499,7 +495,7 @@ def api_list():
 
 @app.route('/api/export', methods=['GET'])
 def export_csv():
-    # api_list와 동일한 로직으로 데이터를 가져옵니다.
+    # api_list와 동일한 로직으로 데이터를 가져옴.
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     yolo_class = request.args.get('yolo_class')
@@ -535,8 +531,8 @@ def export_csv():
     
     output.seek(0)
 
-    # 💡 수정된 부분: 문자열을 'utf-8-sig'로 인코딩하여 바이트로 만듭니다.
-    # 이렇게 하면 파일 시작 부분에 BOM이 추가되어 Excel이 한글을 올바르게 인식합니다.
+    # 문자열을 'utf-8-sig'로 인코딩하여 바이트로 만든다.
+    # 이렇게 하면 파일 시작 부분에 BOM이 추가되어 Excel이 한글을 올바르게 인식한다.
     csv_data = output.getvalue().encode('utf-8-sig')
 
     response = make_response(csv_data)
@@ -555,11 +551,10 @@ def api_delete():
     conn.close()
     return jsonify({'status': 'success'})
 
-# --- 재분류 API ---
+# 재분류 API
 @app.route('/api/reclassify', methods=['POST'])
 @login_required
 def api_reclassify():
-    # ... (이 함수는 그대로 유지) ...
     data = request.json
     item_id = data.get('id')
     new_class = data.get('new_class')
@@ -586,7 +581,7 @@ def api_reclassify():
     return jsonify({'status': 'success'})
 
 
-# 🚀 [신규] 선택 항목 일괄 재분류 API ---
+# 선택 항목 일괄 재분류 API
 @app.route('/api/reclassify_batch', methods=['POST'])
 @login_required
 def api_reclassify_batch():
@@ -618,21 +613,21 @@ def api_reclassify_batch():
                 cursor.execute(query, (new_class, new_effnet_class, modifier, item_id))
         conn.commit()
     except Exception as e:
-        conn.rollback() # 오류 발생 시 모든 변경사항 되돌리기
+        conn.rollback()  # 오류 발생 시 모든 변경사항 되돌리기
         return jsonify({'status': 'error', 'message': str(e)}), 500
     finally:
         conn.close()
 
     return jsonify({'status': 'success'})
 
-# --- 메모 업데이트 API ---
+# 메모 업데이트 API
 @app.route('/api/update_note', methods=['POST'])
-@login_required # 👈 API도 보호합니다.
+@login_required
 def update_note():
     data = request.json
     item_id = data.get('id')
     note = data.get('note')
-    # 🔴 수정자를 현재 로그인된 사용자 이름으로 변경
+    # 수정자를 현재 로그인된 사용자 이름으로 변경
     modifier = current_user.username
 
     if item_id is None: return jsonify({'status': 'error'}), 400
@@ -783,8 +778,8 @@ def stats_overall():
     with conn.cursor() as cursor:
         cursor.execute("""
             SELECT COUNT(*) as total_count,
-                   SUM(CASE WHEN yolo_class = '1' THEN 1 ELSE 0 END) as good_count,
-                   SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) as bad_count
+                SUM(CASE WHEN yolo_class = '1' THEN 1 ELSE 0 END) as good_count,
+                SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) as bad_count
             FROM classified_objects WHERE del_yn = 'N' AND model_gb = %s
         """, (model_gb,))
 
@@ -792,11 +787,7 @@ def stats_overall():
     conn.close()
     return jsonify(result)
 
-# =================================================================
-# 👇 아래의 라우트 함수들을 app.py의 `if __name__ == '__main__':` 라인 **앞에** 추가하세요.
-# =================================================================
-
-# --- 아이디 중복 확인 API ---
+# 아이디 중복 확인 API
 @app.route('/check_userid', methods=['POST'])
 def check_userid():
     data = request.get_json()
@@ -811,7 +802,7 @@ def check_userid():
     else:
         return jsonify({'available': True})
     
-# --- ✨ [새로 추가] 이메일 중복 확인 API ---
+# 이메일 중복 확인 API
 @app.route('/check_email', methods=['POST'])
 def check_email():
     data = request.get_json()
@@ -826,7 +817,7 @@ def check_email():
     else:
         return jsonify({'available': True})
     
-# --- 관리자 코드 실시간 확인 API ---
+# 관리자 코드 실시간 확인 API
 @app.route('/check_admin_code', methods=['POST'])
 def check_admin_code():
     data = request.get_json()
@@ -837,17 +828,15 @@ def check_admin_code():
     else:
         return jsonify({'valid': False})
 
-# --- 회원가입 라우트 (수정된 버전) ---
+# 회원가입 라우트
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    # 💡 [핵심 로직 1]
     # 사용자가 이미 로그인된 상태에서 이 페이지에 오려고 하면,
-    # 이전 세션을 깨끗하게 로그아웃시켜서 충돌을 방지합니다.
+    # 이전 세션을 깨끗하게 로그아웃시켜서 충돌을 방지한다.
     if current_user.is_authenticated:
         logout_user()
 
     if request.method == 'POST':
-        # ... (POST 요청 처리 로직은 기존과 동일하므로 생략) ...
         userid = request.form['userid']
         password = request.form['password']
         password_confirm = request.form['password_confirm']
@@ -889,20 +878,18 @@ def register():
         flash('회원가입이 완료되었습니다. 로그인해주세요.', 'register_success')
         return redirect(url_for('login'))
 
-    # GET 요청 시에는 회원가입 페이지만 보여줍니다.
+    # GET 요청 시에는 회원가입 페이지만 보여줌.
     return render_template('register.html')
 
-# --- 로그인 라우트 (수정) ---
+# 로그인 라우트
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    # 💡 [핵심 로직 2]
     # 사용자가 이미 로그인된 상태라면, 로그인 페이지를 보여줄 필요 없이
-    # 즉시 메인 페이지로 보냅니다.
+    # 즉시 메인 페이지로 보낸다.
     if current_user.is_authenticated:
         return redirect(url_for('index'))
 
     if request.method == 'POST':
-        # ... (POST 요청 처리 로직은 기존과 동일하므로 생략) ...
         userid = request.form['userid']
         password = request.form['password']
 
@@ -927,19 +914,19 @@ def login():
             flash('아이디 또는 비밀번호가 올바르지 않습니다.', 'login_error')
             return render_template('login.html', userid=userid)
 
-    # GET 요청 시에는 로그인 페이지만 보여줍니다.
+    # GET 요청 시에는 로그인 페이지만 보여줌.
     return render_template('login.html', userid='')
 
-# --- 로그아웃 라우트 ---
+# 로그아웃 라우트
 @app.route('/logout')
 @login_required # 로그아웃은 로그인된 사용자만 가능
 def logout():
     logout_user()
-    # 👇 [핵심 추가] 로그아웃 성공 시 특별 카테고리로 flash 메시지 추가
+    # 로그아웃 성공 시 특별 카테고리로 flash 메시지 추가
     flash('로그아웃 되었습니다.', 'logout_success')
     return redirect(url_for('index'))
 
-# --- 현재 비밀번호 실시간 확인 API ---
+# 현재 비밀번호 실시간 확인 API
 @app.route('/check_current_password', methods=['POST'])
 @login_required
 def check_current_password():
@@ -950,12 +937,12 @@ def check_current_password():
     else:
         return jsonify({'valid': False})
 
-# --- 계정 관리 (회원정보 수정) 라우트 ---
+# 계정 관리 (회원정보 수정) 라우트
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():
     if request.method == 'POST':
-        # 👈 [핵심 수정 1] 사용자가 제출한 데이터를 딕셔너리로 저장
+        # 사용자가 제출한 데이터를 딕셔너리로 저장
         form_data = {
             'name': request.form.get('name'),
             'email': request.form.get('email'),
@@ -974,13 +961,13 @@ def profile():
             if cursor.fetchone():
                 flash('이미 사용 중인 이메일입니다.', 'error')
                 conn.close()
-                # 👈 [핵심 수정 2] redirect 대신 render_template로 입력값 유지
+                # redirect 대신 render_template로 입력값 유지
                 return render_template('profile.html', user_data=form_data)
 
         # 기본 정보 업데이트
         with conn.cursor() as cursor:
             cursor.execute("UPDATE users SET name = %s, email = %s, company = %s, role = %s WHERE id = %s",
-                           (form_data['name'], form_data['email'], form_data['company'], form_data['role'], current_user.id))
+                        (form_data['name'], form_data['email'], form_data['company'], form_data['role'], current_user.id))
 
         # 비밀번호 변경 로직
         if current_password:
@@ -1005,16 +992,16 @@ def profile():
 
         conn.commit()
         conn.close()
-        # 👇 [핵심 수정] 'success' 카테고리를 'profile_success'로 변경합니다.
+        # 'success' 카테고리를 'profile_success'로 변경
         flash('회원 정보가 성공적으로 수정되었습니다.', 'profile_success')
         return redirect(url_for('profile'))
 
     # GET 요청 시, user_data를 None 또는 빈 딕셔너리로 전달
     return render_template('profile.html', user_data={})
 
-# --- 관리자 페이지: 회원 목록 ---
+# 관리자 페이지: 회원 목록
 @app.route('/admin')
-@admin_required # 관리자만 접근 가능
+@admin_required  # 관리자만 접근 가능
 def admin_dashboard():
     conn = get_db_connection()
     with conn.cursor() as cursor:
@@ -1023,7 +1010,7 @@ def admin_dashboard():
     conn.close()
     return render_template('admin.html', users=users)
 
-# --- 🚀 [신규] 모델 관리 페이지 라우트 ---
+# 모델 관리 페이지 라우트
 @app.route('/admin/model')
 @admin_required
 def model_management():
@@ -1033,7 +1020,7 @@ def model_management():
         cursor.execute("SELECT COUNT(*) as count FROM classified_objects WHERE is_reclassified = 1 AND del_yn = 'N'")
         reclassified_count = cursor.fetchone()['count']
 
-        # 💡 [수정] 재학습 이력 목록을 페이지네이션으로 조회
+        # 재학습 이력 목록을 페이지네이션으로 조회
         page = int(request.args.get('page', 1))
         per_page = 10 # 한 페이지에 10개씩 표시
         offset = (page - 1) * per_page
@@ -1076,7 +1063,7 @@ def model_management():
         to_date=to_date
     )
 
-# --- 🚀 [신규] 재학습 이력 삭제 API ---
+# 재학습 이력 삭제 API
 @app.route('/api/delete_job/<int:job_id>', methods=['POST'])
 @admin_required
 def delete_job(job_id):
@@ -1103,7 +1090,7 @@ def delete_job(job_id):
         if conn:
             conn.close()
 
-# --- 🚀 [신규] 재분류된 이미지 개수만 알려주는 간단한 API ---
+# 재분류된 이미지 개수만 알려주는 간단한 API
 @app.route('/api/reclassified_count')
 @login_required
 def get_reclassified_count():
@@ -1114,7 +1101,7 @@ def get_reclassified_count():
     conn.close()
     return jsonify({'count': count})
 
-# --- ✨ [새로 추가] 관리자 권한 토글 API ---
+# 관리자 권한 토글 API
 @app.route('/admin/toggle_admin/<int:user_id>', methods=['POST'])
 @admin_required
 def toggle_admin(user_id):
@@ -1124,11 +1111,11 @@ def toggle_admin(user_id):
 
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        # ✨ [핵심 추가] 대상 사용자가 이미 관리자인지 확인
+        # 대상 사용자가 이미 관리자인지 확인
         cursor.execute("SELECT is_admin FROM users WHERE id = %s", (user_id,))
         target_user = cursor.fetchone()
 
-        # 대상이 존재하고, 이미 관리자라면 변경을 막음
+        # 대상이 존재하고, 이미 관리자라면 변경을 막음.
         if target_user and target_user['is_admin']:
             flash('다른 관리자의 권한은 변경할 수 없습니다.', 'error')
             conn.close()
@@ -1142,7 +1129,7 @@ def toggle_admin(user_id):
     flash(f'사용자(ID: {user_id})를 관리자로 임명했습니다.', 'success')
     return redirect(url_for('admin_dashboard'))
 
-# --- [수정] 회원 삭제 라우트 ---
+# 회원 삭제 라우트
 # 기존 로직은 거의 동일하지만, 다른 관리자를 삭제하지 못하도록 방어 로직 추가
 @app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
 @admin_required
@@ -1153,7 +1140,7 @@ def delete_user(user_id):
 
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        # ✨ [핵심 추가] 삭제하려는 대상이 관리자인지 확인
+        # 삭제하려는 대상이 관리자인지 확인
         cursor.execute("SELECT is_admin FROM users WHERE id = %s", (user_id,))
         target_user = cursor.fetchone()
         if target_user and target_user['is_admin']:
@@ -1168,7 +1155,7 @@ def delete_user(user_id):
     flash(f'사용자(ID: {user_id})가 삭제되었습니다.', 'success')
     return redirect(url_for('admin_dashboard'))
 
-# --- 회원 탈퇴 처리 ---
+# 회원 탈퇴 처리
 @app.route('/delete_account', methods=['POST'])
 @login_required
 def delete_account():
@@ -1186,10 +1173,10 @@ def delete_account():
     conn.close()
     
     # 성공 메시지와 함께 메인 페이지로 리다이렉트
-    flash('회원 탈퇴가 완료되었습니다. 이용해주셔서 감사합니다.', 'logout_success') # 로그아웃 성공과 동일한 카테고리 사용
+    flash('회원 탈퇴가 완료되었습니다. 이용해주셔서 감사합니다.', 'logout_success')  # 로그아웃 성공과 동일한 카테고리 사용
     return redirect(url_for('index'))
 
-# --- 🚀 [신규] 기간별 데이터 삭제 API ---
+# 기간별 데이터 삭제 API
 @app.route('/api/delete_by_date', methods=['POST'])
 @admin_required
 def delete_by_date():
@@ -1211,13 +1198,13 @@ def delete_by_date():
     flash(f'{from_date}부터 {to_date}까지의 데이터 {deleted_count}건이 삭제되었습니다.', 'success')
     return jsonify({'status': 'success', 'deleted_count': deleted_count})
 
-# --- 🚀 [신규] 전체 데이터 삭제 API ---
+# 전체 데이터 삭제 API
 @app.route('/api/delete_all', methods=['POST'])
 @admin_required
 def delete_all():
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        # TRUNCATE는 롤백이 불가능하지만, DELETE보다 훨씬 빠릅니다.
+        # TRUNCATE는 롤백이 불가능하지만, DELETE보다 훨씬 빠름.
         cursor.execute("TRUNCATE TABLE classified_objects")
     conn.commit()
     conn.close()

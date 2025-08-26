@@ -49,7 +49,6 @@
             <label for="role">직무 또는 역할 (선택)</label>
             <input type="text" id="role" name="role" placeholder="예: 품질 관리, 데이터 분석가">
         </div>
-        <!-- [핵심 수정] 관리자 코드 입력란과 피드백 메시지 div -->
         <div class="form-group">
             <label for="admin_code">관리자 코드 (선택)</label>
             <input type="text" id="admin_code" name="admin_code" placeholder="관리자만 입력하세요">
@@ -71,23 +70,22 @@
 
 <script>
 $(function() {
-    // --- 유효성 검사 상태를 저장할 플래그 변수들 ---
+    // 유효성 검사 상태를 저장할 플래그 변수들
     let isUserIdAvailable = false;
-    let isPasswordLengthValid = false; // 👈 비밀번호 길이 유효성 플래그 추가
+    let isPasswordLengthValid = false; // 비밀번호 길이 유효성 플래그 추가
     let isPasswordMatch = false;
     let isEmailValid = false;
-    let isNameValid = false; // ✨ [새 플래그] 이름 유효성 플래그
+    let isNameValid = false; // 이름 유효성 플래그
     let isEmailAvailable = false;   // 이메일 중복 유효성 플래그
     let emailCheckTimeout; // 이메일 디바운싱 타이머
     let adminCodeCheckTimeout; // 디바운싱 타이머
 
-    // --- 비밀번호 길이 규칙 정의 ---
+    // 비밀번호 길이 규칙 정의
     const MIN_PASSWORD_LENGTH = 8;
     const MAX_PASSWORD_LENGTH = 16;
 
-    // --- 1. 아이디 중복 확인 (기존과 동일) ---
+    // ----- 1. 아이디 중복 확인 -----
     $('#check-userid-btn').on('click', function() {
-        // ... (기존 코드 생략) ...
         const userid = $('#userid').val();
         const feedback = $('#userid-feedback');
         if (userid.length < 4) {
@@ -120,7 +118,7 @@ $(function() {
         }
     });
 
-    // --- 2. 실시간 비밀번호 길이 검사 (✨ 새로 추가된 부분) ---
+    // ----- 2. 실시간 비밀번호 길이 검사 -----
     $('#password').on('input focusout', function(event) {
         const password = $(this).val();
         const length = password.length;
@@ -154,7 +152,7 @@ $(function() {
         }
     });
 
-    // --- 3. 실시간 비밀번호 일치 검사 ---
+    // ----- 3. 실시간 비밀번호 일치 검사 -----
     $('#password, #password_confirm').on('input', function() {
         const password = $('#password').val();
         const passwordConfirm = $('#password_confirm').val();
@@ -172,7 +170,7 @@ $(function() {
         }
     });
 
-    // --- 3. 이름 필드 유효성 검사 (✨ 중복 제거 및 정리된 최종 버전) ---
+    // ----- 4. 이름 필드 유효성 검사 -----
     $('#name').on('input focusout', function(event) {
         const name = $(this).val();
         const feedback = $(this).siblings('.feedback-message');
@@ -196,7 +194,7 @@ $(function() {
         }
     });
 
-    // --- 4. 실시간 이메일 형식 검사 (✨ focusout 이벤트 추가) ---
+    // ----- 5. 실시간 이메일 형식 검사 -----
     $('#email').on('input focusout', function(event) {
         const email = $(this).val();
         const feedback = $('#email-feedback');
@@ -222,7 +220,7 @@ $(function() {
         }
     });
 
-    // --- 5. ✨ [핵심 수정] 실시간 이메일 형식 및 중복 검사 ---
+    // ----- 6. 실시간 이메일 형식 및 중복 검사 -----
     $('#email').on('input focusout', function(event) {
         const email = $(this).val();
         const feedback = $('#email-feedback');
@@ -243,7 +241,7 @@ $(function() {
             
             emailCheckTimeout = setTimeout(() => {
                 $.ajax({
-                    url: '/check_email', // 새로 만든 API 호출
+                    url: '/check_email',  // 새로 만든 API 호출
                     type: 'POST',
                     contentType: 'application/json',
                     data: JSON.stringify({ email: email }),
@@ -265,11 +263,11 @@ $(function() {
         }
     });
 
-    // --- 6. 실시간 관리자 코드 확인 ---
+    // ----- 7. 실시간 관리자 코드 확인 -----
     $('#admin_code').on('input', function() {
         const code = $(this).val();
         const feedback = $('#admin-code-feedback');
-        clearTimeout(adminCodeCheckTimeout); // 이전 타이머 취소
+        clearTimeout(adminCodeCheckTimeout);  // 이전 타이머 취소
 
         // 입력창이 비어있으면 메시지 숨김
         if (code === '') {
@@ -295,7 +293,7 @@ $(function() {
         }, 500);
     });
 
-    // --- 7. 최종 폼 제출 시 유효성 검사 ---
+    // ----- 8. 최종 폼 제출 시 유효성 검사 -----
     $('#register-form').on('submit', function(event) {
         // 모든 필수 필드를 다시 한번 검사하여 피드백을 강제로 표시
         if ($('#userid').val() === '') { $('#userid').trigger('focusout'); }
@@ -310,20 +308,20 @@ $(function() {
         if (!isPasswordMatch) { errorMessages.push('비밀번호가 일치하지 않습니다.'); }
         if (!isNameValid) { errorMessages.push('이름을 올바르게 입력해주세요.'); }
         if (!isEmailFormatValid) { errorMessages.push('이메일 형식을 확인해주세요.'); }
-        else if (!isEmailAvailable) { errorMessages.push('이미 사용 중인 이메일입니다.'); } // 형식은 맞지만 중복된 경우
+        else if (!isEmailAvailable) { errorMessages.push('이미 사용 중인 이메일입니다.'); }  // 형식은 맞지만 중복된 경우
         
-        // ✨ 이용약관 체크는 별도로 처리
+        // 이용약관 체크는 별도로 처리
         let isTermsChecked = true;
         if (!$('#terms').is(':checked')) {
             $('#terms-feedback').text('이용약관에 동의해야 합니다.').addClass('unavailable');
             isTermsChecked = false;
         }
 
-        // ✨ alert를 띄울 오류가 있거나, 이용약관에 동의하지 않았으면 제출을 막음
+        // alert를 띄울 오류가 있거나, 이용약관에 동의하지 않았으면 제출을 막음.
         if (errorMessages.length > 0 || !isTermsChecked) {
-            event.preventDefault(); // 폼 제출 중단
+            event.preventDefault();  // 폼 제출 중단
 
-            // ✨ errorMessages 배열에 내용이 있을 때만 alert를 띄움
+            // errorMessages 배열에 내용이 있을 때만 alert를 띄움.
             if (errorMessages.length > 0) {
                 alert(errorMessages.join('\n'));
             }

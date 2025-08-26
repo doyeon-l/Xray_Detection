@@ -138,7 +138,7 @@ footer p {
 table { border-collapse: collapse; width: 100%; }
 th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
 .thumbnail { cursor: pointer; width: 60px; height: 60px; object-fit: cover; }
-#list-container { height: 600px; overflow-y: scroll; border: 1px solid #ccc; }
+#list-container { border: 1px solid #ccc; }
 #image-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display:flex; justify-content: center; align-items: center; z-index: 1000; }
 #modal-img { max-width: 90%; max-height: 90%; }
 
@@ -976,6 +976,17 @@ input[readonly]:not(.datepicker-input) {
 }
 .pagination .page-link:hover {
   background-color: #eee;
+}
+/* 🚀 [신규] 페이지네이션 링크 내부의 텍스트/아이콘 스타일 */
+.pagination .page-link {
+  color: #337ab7;
+  padding: 8px 12px;
+  text-decoration: none;
+  border: 1px solid #ddd;
+  margin-left: -1px; /* 테두리 겹침 방지 */
+  background-color: #fff;
+  /* 💡 [추가] 폰트 두께를 굵게 하여 아이콘이 잘 보이도록 함 */
+  font-weight: bold; 
 }
 
 /* ================================== 도움말 아이콘 및 팝오버 ================================== */

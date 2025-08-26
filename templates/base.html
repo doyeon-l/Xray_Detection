@@ -3,10 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- block title: 각 페이지의 제목이 여기에 들어옵니다 -->
 <title>{% block title %}{% endblock %} - X-Ray 이물 검출 시스템</title>
 
-<!-- Favicon 설정 시작 -->
+<!-- Favicon 설정 -->
 <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/favicon/apple-touch-icon.png') }}">
 <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon/favicon-32x32.png') }}">
 <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/favicon/favicon-16x16.png') }}">
@@ -15,20 +14,18 @@
 <!-- 공통 CSS 파일 연결 -->
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
-<!-- 🚀 [신규] Font Awesome 아이콘 라이브러리 추가 -->
+<!-- Font Awesome 아이콘 라이브러리 -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
-<!-- 기존 페이지들에서 사용하던 라이브러리들을 여기에 모아둡니다 -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
 <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
 
-<!-- 각 페이지별로 추가할 head 내용이 있다면 여기에 들어옵니다 -->
 {% block head %}{% endblock %}
 </head>
 <body>
-  <!-- 🚀 [신규] 파일 업로드 진행률 표시를 위한 로딩 오버레이 -->
+  <!-- 파일 업로드 진행률 표시를 위한 로딩 오버레이 -->
   <div id="upload-progress-overlay">
     <div class="progress-box">
       <div class="spinner"></div>
@@ -39,50 +36,50 @@
     </div>
   </div>
 
-  <!-- ✨ [새로 추가] 토스트 알림을 위한 HTML 구조 -->
-    <div id="toast-notification">
-        <span id="toast-message"></span>
-        <button id="toast-close">&times;</button>
-    </div>
+  <!-- 토스트 알림을 위한 HTML 구조 -->
+  <div id="toast-notification">
+    <span id="toast-message"></span>
+    <button id="toast-close">&times;</button>
+  </div>
   <!-- 상단 고정 메뉴바 포함 -->
   <header class="site-header">
     <div class="container">
       <div class="logo">
-          <a href="{{ url_for('index') }}">
-              <img id="logo-img" src="{{ url_for('static', filename='img/TeamLogo_white.png') }}" alt="FUBAO" />
-          </a>
+        <a href="{{ url_for('index') }}">
+          <img id="logo-img" src="{{ url_for('static', filename='img/TeamLogo_white.png') }}" alt="FUBAO" />
+        </a>
       </div>
       <nav class="main-nav">
         <ul>
           {% if current_user.is_authenticated %}
-              <li class="nav-item-dropdown">
-                  <a href="#" class="nav-user">
-                      <!-- ✨ [핵심 수정 1] 관리자일 경우 '[관리자]' 텍스트 추가 -->
-                      {% if current_user.is_admin %}
-                          <span class="admin-badge">[관리자]</span>
-                      {% endif %}
-                      {{ current_user.name }}님
-                  </a>
-                  <ul class="dropdown-menu">
-                      <!-- ✨ [핵심 수정 2] 관리자일 경우 '회원 관리' 메뉴 항목 추가 -->
-                      {% if current_user.is_admin %}
-                          <li><a href="{{ url_for('admin_dashboard') }}">회원 관리</a></li>
-                          <li><a href="{{ url_for('model_management') }}">모델 관리</a></li>
-                      {% endif %}
-                      <li><a href="{{ url_for('profile') }}">계정 관리</a></li>
-                      <li><a href="{{ url_for('logout') }}">로그아웃</a></li>
-                  </ul>
-              </li>
-              <li><a href="{{ url_for('list_page') }}">목록</a></li>
+            <li class="nav-item-dropdown">
+              <a href="#" class="nav-user">
+                <!-- 관리자일 경우 '[관리자]' 텍스트 추가 -->
+                {% if current_user.is_admin %}
+                  <span class="admin-badge">[관리자]</span>
+                {% endif %}
+                {{ current_user.name }}님
+              </a>
+              <ul class="dropdown-menu">
+                <!-- 관리자일 경우 '회원 관리', '모델 관리' 메뉴 추가 -->
+                {% if current_user.is_admin %}
+                  <li><a href="{{ url_for('admin_dashboard') }}">회원 관리</a></li>
+                  <li><a href="{{ url_for('model_management') }}">모델 관리</a></li>
+                {% endif %}
+                <li><a href="{{ url_for('profile') }}">계정 관리</a></li>
+                <li><a href="{{ url_for('logout') }}">로그아웃</a></li>
+              </ul>
+            </li>
+            <li><a href="{{ url_for('list_page') }}">목록</a></li>
           {% else %}
-              <li><a href="{{ url_for('login') }}">로그인</a></li>
-              <li><a href="{{ url_for('register') }}">회원가입</a></li>
+            <li><a href="{{ url_for('login') }}">로그인</a></li>
+            <li><a href="{{ url_for('register') }}">회원가입</a></li>
           {% endif %}
         </ul>
       </nav>
     </div></header>
   <main class="main-container">
-        <!-- ✨ [수정] flash 메시지 구조 단순화 -->
+        <!-- flash 메시지 -->
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             <div class="flash-container" style="display: none;">
@@ -105,10 +102,10 @@
 
   <script>
     $(document).ready(function() {
-      // --- ✨ 토스트 알림창 기능을 범용 함수로 변경 ---
+      // 토스트 알림창 기능을 범용 함수로 변경
       function showToast(message, type = 'info') {
         const toast = $('#toast-notification');
-        toast.removeClass('success error'); // 기존 클래스 초기화
+        toast.removeClass('success error');
 
         if (type === 'success') toast.addClass('success');
         else if (type === 'error') toast.addClass('error');
@@ -121,10 +118,10 @@
 
       $('#toast-close').on('click', () => { $('#toast-notification').removeClass('show'); });
 
-      // --- ✨ [핵심 추가] 이 함수를 다른 스크립트에서 쓸 수 있도록 전역 변수로 만듭니다. ---
+      // 이 함수를 다른 스크립트에서 쓸 수 있도록 전역 변수로 만든다.
       window.showToast = showToast;
 
-      // --- 기존 Flash 메시지 처리 로직 (이제 showToast 함수를 사용) ---
+      // 기존 Flash 메시지 처리 로직 (이제 showToast 함수를 사용)
       const flashMessages = {
           'login_success': { type: 'success' },
           'register_success': { type: 'success' },
@@ -147,7 +144,7 @@
           }
       }
 
-      // --- 드롭다운 메뉴 및 로고 이벤트 처리 (기존과 동일) ---
+      // 드롭다운 메뉴 및 로고 이벤트 처리 (기존과 동일)
       $('.nav-user').on('click', function(event) {
         event.preventDefault();
         event.stopPropagation();

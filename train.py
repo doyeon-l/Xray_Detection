@@ -3,11 +3,11 @@ import os
 import shutil
 from ultralytics import YOLO
 from datetime import datetime
-import argparse  # 🚀 인자 파싱을 위해 추가
-import sys       # 🚀 stdout, stderr 리디렉션을 위해 추가
-import traceback # 🚀 예외 처리를 위해 추가
+import argparse  # 인자 파싱을 위해 추가
+import sys       # stdout, stderr 리디렉션을 위해 추가
+import traceback # 예외 처리를 위해 추가
 
-# --- 설정 ---
+# ----- 설정 -----
 DB_HOST = '127.0.0.1'
 DB_USER = 'root'
 DB_PASSWORD = 'root123'
@@ -21,11 +21,11 @@ LABELS_PATH = os.path.join(RETRAIN_DATASET_PATH, 'labels/train')
 # 데이터셋 설정 파일 (YAML) 경로
 DATA_YAML_PATH = os.path.join(RETRAIN_DATASET_PATH, 'data.yaml')
 
-# --- 🚀 DB 연결 및 업데이트 함수 ---
+# DB 연결 및 업데이트 함수
 def get_db_connection():
     return pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, db=DB_NAME, charset='utf8mb4', autocommit=True)
 
-# --- 🚀 [핵심 수정] DB 업데이트 함수가 자체적으로 연결을 관리하도록 변경 ---
+# DB 업데이트 함수가 자체적으로 연결을 관리하도록 변경
 def update_job_status(job_id, status, message=None, log_append=None):
     conn = None
     try:
@@ -46,7 +46,6 @@ def update_job_status(job_id, status, message=None, log_append=None):
         if conn:
             conn.close()
 
-# --- 🚀 [핵심 수정] DB Logger가 더 이상 connection 객체를 들고 있지 않음 ---
 class DatabaseLogger:
     def __init__(self, job_id):
         self.terminal = sys.stdout
@@ -60,7 +59,7 @@ class DatabaseLogger:
     def flush(self):
         pass
 
-# --- 1. 데이터베이스 연결 및 재분류된 데이터 가져오기 ---
+# ----- 1. 데이터베이스 연결 및 재분류된 데이터 가져오기 -----
 def fetch_reclassified_data():
     print("데이터베이스에서 재분류된 데이터를 가져옵니다...")
     conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, db=DB_NAME, charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor)
@@ -71,7 +70,7 @@ def fetch_reclassified_data():
     print(f"총 {len(data)}개의 재분류된 데이터를 찾았습니다.")
     return data
 
-# --- 2. 학습용 데이터셋 구성 ---
+# ----- 2. 학습용 데이터셋 구성 -----
 def prepare_dataset(data):
     print("재학습용 데이터셋을 구성합니다...")
     # 기존 폴더가 있다면 삭제 후 다시 생성
@@ -82,7 +81,7 @@ def prepare_dataset(data):
 
     for item in data:
         original_image_path = item['image_path']
-        final_class = item['yolo_class'] # '0' for BAD, '1' for GOOD
+        final_class = item['yolo_class']  # '0' for BAD, '1' for GOOD
 
         if not os.path.exists(original_image_path):
             print(f"경고: 이미지 파일을 찾을 수 없습니다 - {original_image_path}")
@@ -97,33 +96,33 @@ def prepare_dataset(data):
         label_file_path = os.path.join(LABELS_PATH, label_file_name)
 
         # 'BAD' (class 0)일 경우에만 바운딩 박스 정보가 있다고 가정
-        # 이 부분은 실제 YOLO 라벨링 정보가 DB에 있거나, 다시 추론해야 함
+        # 이 부분은 실제 YOLO 라벨링 정보가 DB에 있거나, 다시 추론해야 함.
         # 여기서는 단순화를 위해 BAD일 경우 0.5 0.5 0.5 0.5 로 임의의 박스를 생성
         with open(label_file_path, 'w') as f:
             if final_class == '0': # BAD
-                 # 실제로는 원본 YOLO 라벨을 가져와야 합니다.
-                 # 여기서는 예시로 이미지 중앙에 박스를 그립니다.
+                # 실제로는 원본 YOLO 라벨을 가져와야 함.
+                # 여기서는 예시로 이미지 중앙에 박스를 그린다.
                 f.write("0 0.5 0.5 0.5 0.5\n")
             # GOOD (class 1)일 경우, 빈 파일을 생성
 
     print("데이터셋 구성 완료.")
 
-# --- 3. YAML 파일 생성 ---
+# ----- 3. YAML 파일 생성 -----
 def create_yaml_file():
     print("data.yaml 파일을 생성합니다...")
     yaml_content = f"""
-train: {os.path.abspath(IMAGES_PATH)}
-val: {os.path.abspath(IMAGES_PATH)} # 간단하게 train set을 val로도 사용
+        train: {os.path.abspath(IMAGES_PATH)}
+        val: {os.path.abspath(IMAGES_PATH)}  # 간단하게 train set을 val로도 사용
 
-nc: 2
-names: ['BAD', 'GOOD']
-"""
+        nc: 2
+        names: ['BAD', 'GOOD']
+        """
     with open(DATA_YAML_PATH, 'w') as f:
         f.write(yaml_content)
     print("YAML 파일 생성 완료.")
 
 
-# --- 4. YOLO 모델 학습 실행 ---
+# ----- 4. YOLO 모델 학습 실행 -----
 def run_training():
     print("YOLO 모델 재학습을 시작합니다...")
     # 기존 best.pt를 가중치로 사용하여 fine-tuning 시작
@@ -150,7 +149,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     job_id = args.job_id
 
-    # 🚀 [핵심 수정] 이제 Logger는 job_id만 알면 됨
     sys.stdout = DatabaseLogger(job_id)
     sys.stderr = sys.stdout
 

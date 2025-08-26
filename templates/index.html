@@ -26,7 +26,7 @@
         <canvas id="overallChart"></canvas>
     </div>
 
-    <!-- 🚀 [신규] 모델 성능 모니터링 섹션 -->
+    <!-- 모델 성능 모니터링 섹션 -->
     <div class="chart-section performance-section">
         <div class="chart-container"><canvas id="performanceChart"></canvas></div>
     </div>
@@ -36,7 +36,7 @@
         <input type="text" id="start_date_dash" class="datepicker-input" readonly> ~ 
         <input type="text" id="end_date_dash" class="datepicker-input" readonly>
 
-        <!-- 💡 추가: 지도/비지도 학습 선택 콤보박스 -->
+        <!-- 지도/비지도 학습 선택 콤보박스 -->
         <select id="model_gb">
             <option value="S">지도학습</option>
             <option value="U">비지도학습</option>
@@ -56,7 +56,7 @@
 $(function() {
     let chartInstances = {}; // 모든 차트 객체를 관리
 
-    // --- 차트 렌더링/업데이트 함수 ---
+    // 차트 렌더링/업데이트 함수
     function renderOrUpdateChart(canvasId, chartConfig) {
         if (chartInstances[canvasId]) {
             chartInstances[canvasId].destroy();
@@ -65,7 +65,7 @@ $(function() {
         chartInstances[canvasId] = new Chart(ctx, chartConfig);
     }
 
-    // 🚀 [신규] 성능 모니터링 차트 렌더링 함수
+    // 성능 모니터링 차트 렌더링 함수
     function renderPerformanceChart() {
         $.getJSON('/stats/performance_trend', function(data) {
             const labels = data.map(d => d.week_label);
@@ -92,7 +92,7 @@ $(function() {
         });
     }
 
-    // --- 데이터 패칭 및 차트 생성 함수들 ---
+    // 데이터 패칭 및 차트 생성 함수들
     function fetchAndRender(url, canvasId, title, labelKey, params = {}) {
         $.getJSON(url, params, function(data) {
             const labels = data.map(d => d[labelKey]);
@@ -179,7 +179,7 @@ $(function() {
         const params = {
             start_date: $('#start_date_dash').val(),
             end_date: $('#end_date_dash').val(),
-            // 💡 추가: 콤보박스에서 선택된 값을 파라미터로 추가
+            // 콤보박스에서 선택된 값을 파라미터로 추가
             model_gb: $('#model_gb').val()
         };
         fetchAndRender('/stats/daily', 'dailyChart', '📆 일간 통계', 'std_date', params);
@@ -187,7 +187,7 @@ $(function() {
         fetchAndRender('/stats/monthly', 'monthlyChart', '🗓️ 월간 통계', 'year_months', params);
     }
     
-    // --- 초기화 및 이벤트 바인딩 ---
+    // 초기화 및 이벤트 바인딩
     $("#start_date_dash, #end_date_dash").datepicker({ dateFormat: 'yy-mm-dd', maxDate: 0 });
     const today = new Date();
     const aMonthAgo = new Date();
@@ -200,7 +200,6 @@ $(function() {
     updateOverallStatus();
     setInterval(updateOverallStatus, 10000);
 
-    // 🚀 신규 함수 호출
     renderPerformanceChart();
     
     updateDashboardCharts();

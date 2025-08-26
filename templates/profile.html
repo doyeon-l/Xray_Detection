@@ -14,7 +14,7 @@
         </div>
         <div class="form-group">
             <label for="name">이름</label>
-            <!-- 👇 user_data가 있으면 그 값을, 없으면 current_user 값을 사용 -->
+            <!-- ser_data가 있으면 그 값을, 없으면 current_user 값을 사용 -->
             <input type="text" id="name" name="name" value="{{ user_data.name or current_user.name }}" required>
             <div class="feedback-message"></div>
         </div>
@@ -66,18 +66,18 @@
 
 <script>
 $(function() {
-    // --- 유효성 검사 상태 플래그 ---
+    // 유효성 검사 상태 플래그
     let isCurrentPasswordValid = false;
     let isNewPasswordLengthValid = false;
-    let isNewPasswordDifferent = false; // ✨ [새 플래그] 새 비밀번호가 현재와 다른지 여부
+    let isNewPasswordDifferent = false;  // 새 비밀번호가 현재와 다른지 여부
     let isNewPasswordMatch = false;
     let passwordCheckTimeout;
 
-    // ✨ [새 플래그] 이름과 이메일 유효성 플래그 추가
-    let isNameValid = true; // 페이지 로드 시에는 기존 값이 유효하다고 가정
-    let isEmailValid = true; // 페이지 로드 시에는 기존 값이 유효하다고 가정
+    // 이름과 이메일 유효성 플래그 추가 (페이지 로드 시에는 기존 값이 유효하다고 가정)
+    let isNameValid = true;
+    let isEmailValid = true;
 
-    // --- 1. 실시간 현재 비밀번호 확인 (기존과 동일) ---
+    // ----- 1. 실시간 현재 비밀번호 확인 -----
     $('#current_password').on('input', function() {
         const password = $(this).val();
         const feedback = $('#current-password-feedback');
@@ -105,7 +105,7 @@ $(function() {
         }, 500);
     });
 
-    // --- 2. 실시간 새 비밀번호 유효성 검사 (✨ 수정된 부분) ---
+    // ----- 2. 실시간 새 비밀번호 유효성 검사 -----
     // '현재 비밀번호' 또는 '새 비밀번호' 입력 시 모두 검사 실행
     $('#current_password, #new_password').on('input', function() {
         const currentPassword = $('#current_password').val();
@@ -113,7 +113,7 @@ $(function() {
         const length = newPassword.length;
         const feedback = $('#new-password-length-feedback');
         
-        isNewPasswordDifferent = false; // 일단 false로 초기화
+        isNewPasswordDifferent = false;  // 일단 false로 초기화
 
         if (length === 0) {
             feedback.text('');
@@ -124,18 +124,18 @@ $(function() {
         } else if (length > 16) {
             feedback.text('새 비밀번호는 16자를 초과할 수 없습니다.').removeClass('available').addClass('unavailable');
             isNewPasswordLengthValid = false;
-        // ✨ [핵심 추가] 새 비밀번호가 현재 비밀번호와 동일한지 검사
+        // 새 비밀번호가 현재 비밀번호와 동일한지 검사
         } else if (currentPassword.length > 0 && newPassword === currentPassword) {
             feedback.text('새 비밀번호는 현재 비밀번호와 달라야 합니다.').removeClass('available').addClass('unavailable');
-            isNewPasswordLengthValid = false; // 길이 조건은 맞지만, 전체적으로는 유효하지 않음
+            isNewPasswordLengthValid = false;  // 길이 조건은 맞지만, 전체적으로는 유효하지 않음.
         } else {
             feedback.text('사용 가능한 비밀번호입니다.').removeClass('unavailable').addClass('available');
             isNewPasswordLengthValid = true;
-            isNewPasswordDifferent = true; // 모든 검증을 통과해야 true
+            isNewPasswordDifferent = true;  // 모든 검증을 통과해야 true
         }
     });
 
-    // --- 3. 실시간 새 비밀번호 일치 확인 (기존과 동일) ---
+    // ----- 3. 실시간 새 비밀번호 일치 확인 -----
     $('#new_password, #confirm_new_password').on('input', function() {
         const newPassword = $('#new_password').val();
         const confirmPassword = $('#confirm_new_password').val();
@@ -152,8 +152,7 @@ $(function() {
         }
     });
 
-    // --- ✨ [새로 추가] 이름 필드 유효성 검사 ---
-    // register.html의 로직과 동일
+    // 이름 필드 유효성 검사
     $('#name').on('input focusout', function(event) {
         const name = $(this).val();
         const feedback = $(this).siblings('.feedback-message');
@@ -177,8 +176,7 @@ $(function() {
         }
     });
 
-    // --- ✨ [새로 추가] 이메일 필드 유효성 검사 ---
-    // register.html의 로직과 동일
+    // 이메일 필드 유효성 검사
     $('#email').on('input focusout', function(event) {
         const email = $(this).val();
         const feedback = $(this).siblings('.feedback-message');
@@ -202,7 +200,7 @@ $(function() {
         }
     });
 
-    // --- 4. 폼 제출 시 최종 유효성 검사 (✨ 수정된 부분) ---
+    // ----- 4. 폼 제출 시 최종 유효성 검사 -----
     $('#profile-form').on('submit', function(event) {
         if ($('#current_password').val() || $('#new_password').val() || $('#confirm_new_password').val()) {
             if (!isCurrentPasswordValid) {
@@ -213,7 +211,7 @@ $(function() {
                 alert('새 비밀번호는 8자 이상, 16자 이하로 설정해주세요.');
                 event.preventDefault(); return;
             }
-            // ✨ [핵심 추가] 최종 제출 시에도 한번 더 확인
+            // 최종 제출 시에도 한번 더 확인
             if (!isNewPasswordDifferent) {
                 alert('새 비밀번호는 현재 비밀번호와 다르게 설정해야 합니다.');
                 event.preventDefault(); return;
@@ -224,7 +222,7 @@ $(function() {
             }
         }
 
-        // [핵심 추가] 이름과 이메일 필드 최종 검사
+        // 이름과 이메일 필드 최종 검사
         if ($('#name').val() === '' || !isNameValid) {
             alert('이름을 올바르게 입력해주세요.');
             event.preventDefault(); return;
@@ -235,7 +233,7 @@ $(function() {
         }
     });
 
-    // --- 회원 탈퇴 버튼 클릭 이벤트 ---
+    // 회원 탈퇴 버튼 클릭 이벤트
     $('#delete-account-btn').on('click', function() {
         // 사용자에게 재확인
         if (confirm('정말로 회원에서 탈퇴하시겠습니까? 모든 정보가 영구적으로 삭제됩니다.')) {

@@ -89,15 +89,15 @@
 <script>
 $(document).ready(function() {
     let pollingInterval;
-    // 💡 [핵심 추가] 이전 작업 상태를 기억하기 위한 변수
+    // 이전 작업 상태를 기억하기 위한 변수
     let lastKnownStatus = null;
 
-    // --- 1. 현재 진행 중인 작업 상태 폴링 ---
+    // ----- 1. 현재 진행 중인 작업 상태 폴링 -----
     function checkRetrainingStatus() {
         $.getJSON('/api/retraining_status', function(job) {
             const currentStatus = job.status;
 
-            // --- 🚀 [핵심 로직] 작업 상태가 '진행 중'에서 '완료/실패/취소'로 바뀌는 순간을 감지 ---
+            // 작업 상태가 '진행 중'에서 '완료/실패/취소'로 바뀌는 순간을 감지
             if ((lastKnownStatus === 'RUNNING' || lastKnownStatus === 'PENDING') && 
                 (currentStatus === 'COMPLETED' || currentStatus === 'FAILED' || currentStatus === 'CANCELED')) {
                 
@@ -111,22 +111,22 @@ $(document).ready(function() {
                 let toastType = 'info';
                 if (currentStatus === 'COMPLETED') toastType = 'success';
                 if (currentStatus === 'FAILED') toastType = 'error';
-                if (currentStatus === 'CANCELED') toastType = 'warning'; // CANCELED는 warning 타입으로 설정
+                if (currentStatus === 'CANCELED') toastType = 'warning';  // CANCELED는 warning 타입으로 설정
                 
                 showToast(job.result_message || '작업이 종료되었습니다.', toastType);
 
                 // 3. 2초 후에 페이지를 완전히 새로고침하여 이력 테이블을 최신화
                 setTimeout(() => {
                     window.location.reload();
-                }, 2000); // 사용자가 알림을 읽을 시간을 2초 줍니다.
+                }, 2000);  // 사용자가 알림을 읽을 시간을 2초 줌.
 
-                return; // 함수를 여기서 종료하여 아래 로직을 타지 않도록 함
+                return;  // 함수를 여기서 종료하여 아래 로직을 타지 않도록 함.
             }
             
             // 이전 상태를 현재 상태로 업데이트
             lastKnownStatus = currentStatus;
 
-            // --- 기존의 실시간 UI 업데이트 로직 (진행 중일 때만 실행) ---
+            // 실시간 UI 업데이트 로직 (진행 중일 때만 실행)
             const liveContainer = $('#live-status-container');
             const retrainBtn = $('#retrain-btn');
             const controlsContainer = $('#retrain-controls');
@@ -142,7 +142,7 @@ $(document).ready(function() {
                     controlsContainer.append('<button type="button" id="stop-btn" class="btn-delete" style="padding: 10px 20px; font-size: 1.1rem; margin-left: 10px;">강제 중지</button>');
                 }
                 if (!pollingInterval) {
-                   pollingInterval = setInterval(checkRetrainingStatus, 5000);
+                    pollingInterval = setInterval(checkRetrainingStatus, 5000);
                 }
             } else {
                 liveContainer.hide();
@@ -162,13 +162,12 @@ $(document).ready(function() {
         });
     }
 
-    // --- 2. 재학습 이력 페이지네이션 렌더링 ---
+    // ----- 2. 재학습 이력 페이지네이션 렌더링 -----
     function renderPagination() {
         const totalItems = {{ total_jobs }};
         const itemsPerPage = {{ per_page }};
         const currentPage = {{ page }};
         const totalPages = Math.ceil(totalItems / itemsPerPage);
-        // ... (list.html의 renderPagination 로직과 동일하게 구현) ...
         const controls = $('#pagination-controls').empty();
         if (totalPages <= 1) return;
         let paginationHtml = '<ul class="pagination">';
@@ -181,7 +180,7 @@ $(document).ready(function() {
         controls.html(paginationHtml);
     }
 
-    // --- 3. 이벤트 핸들러 ---
+    // ----- 3. 이벤트 핸들러 -----
     // 강제 중지
     $(document).on('click', '#stop-btn', function() {
         if (confirm('정말로 현재 진행 중인 재학습을 중지하시겠습니까?')) {
@@ -194,14 +193,15 @@ $(document).ready(function() {
             });
         }
     });
+
     // 이력 삭제
     $(document).on('click', '.delete-job-btn', function() {
         const jobId = $(this).data('job-id');
         if (confirm(`작업 ID ${jobId} 이력을 정말로 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다!`)) {
             $.post(`/api/delete_job/${jobId}`, function(response) {
                 showToast(response.message, response.status);
-                // 💡 [핵심 수정] 1.5초 후에 페이지를 새로고침하여
-                //    사용자가 메시지를 읽을 시간을 줍니다.
+                // 1.5초 후에 페이지를 새로고침하여
+                // 사용자가 메시지를 읽을 시간을 줌.
                 setTimeout(() => {
                     window.location.reload();
                 }, 1500); 
@@ -210,12 +210,14 @@ $(document).ready(function() {
             });
         }
     });
+
     // 날짜 필터 조회
     $('#filter-btn').on('click', function() {
         const fromDate = $('#from_date').val();
         const toDate = $('#to_date').val();
         window.location.href = `/admin/model?from_date=${fromDate}&to_date=${toDate}`;
     });
+
     // 페이지네이션 클릭
     $(document).on('click', '.pagination a', function(e) {
         e.preventDefault();
@@ -227,7 +229,7 @@ $(document).ready(function() {
         }
     });
 
-    // --- 4. 초기화 ---
+    // ----- 4. 초기화 -----
     checkRetrainingStatus();
     renderPagination();
 });
