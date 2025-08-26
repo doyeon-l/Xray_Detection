@@ -17,7 +17,6 @@ html, body {
 }
 
 /*--------------------------------------base--------------------------------------------------*/
-
 /* 상단 고정 네비 바 */
 .site-header {
   position: fixed;
@@ -109,7 +108,7 @@ footer p {
 
 /* 배경 위 텍스트를 위한 오버레이 */
 .hero-overlay {
-  background-color: rgba(0, 0, 0, 0.5); /* 어둡게 */
+  background-color: rgba(0, 0, 0, 0.5);  /* 어둡게 */
   color: white;
   padding: 40px;
   border-radius: 5px;
@@ -180,8 +179,8 @@ th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
 /* 차트들을 감싸는 그리드 레이아웃 */
 .dashboard-grid {
   display: flex;
-  flex-direction: column; /* 세로로 배치 */
-  gap: 50px; /* 차트 사이의 간격 */
+  flex-direction: column;  /* 세로로 배치 */
+  gap: 50px;
   background-color: #eee;
   padding-top: 30px;
 }
@@ -193,16 +192,15 @@ th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
 }
 
 /* 도넛 차트 컨테이너 */
-
 .chart-container.flex-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 .chart-container.flex-row canvas {
-  flex: 0 0 50%; /* ← 더 좁게 (예: 60%) */
-  max-width: 800px; /* 고정 너비 제한 */
-  height: 400px; /* 고정 높이 */
+  flex: 0 0 50%;  /* ← 더 좁게 (예: 60%) */
+  max-width: 800px;  /* 고정 너비 제한 */
+  height: 400px;  /* 고정 높이 */
 }
 .chart-container.flex-row #realtime-status {
   flex: 0 0 40%;
@@ -278,12 +276,12 @@ th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
 .list_title::before {
   content: "";
   position: absolute;
-  top: 0; /* h2 위쪽에 붙이기 */
-  left: 50%; /* 왼쪽 정렬 */
-  transform: translateX(-50%); /* 자기 너비의 절반만큼 왼쪽으로 이동 */
-  width: 30px; /* 막대기 길이 */
-  height: 3px; /* 막대기 두께 */
-  background-color: #333; /* 막대기 색상 */
+  top: 0;  /* h2 위쪽에 붙이기 */
+  left: 50%;  /* 왼쪽 정렬 */
+  transform: translateX(-50%);  /* 자기 너비의 절반만큼 왼쪽으로 이동 */
+  width: 30px;  /* 막대기 길이 */
+  height: 3px;  /* 막대기 두께 */
+  background-color: #333;  /* 막대기 색상 */
   border-radius: 1px;
 }
 
@@ -300,8 +298,8 @@ th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
 .controls select{
   padding: 2px;
   border-radius: 3px;
-  border: none;
-  background-color: #f8f9fa;
+  border: 1px solid #212529;
+  background-color: #ffffff;
   color: #333;
   font-size: 0.9rem;
   font-family: 'Noto Sans', sans-serif;
@@ -312,10 +310,10 @@ th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
   margin-left: 0 !important;
   margin-right: 0 !important;
   display: flex;
-  align-items: center;        /* 세로 중앙 */
-  justify-content: flex-start;/* 왼쪽 정렬 */
-  gap: 0;                     /* flex 기본 간격 제거 */
-  padding: 15px 0;             /* 높이만 살짝 */
+  align-items: center;  /* 세로 중앙 */
+  justify-content: flex-start;  /* 왼쪽 정렬 */
+  gap: 0;  /* flex 기본 간격 제거 */
+  padding: 15px 0;
   border-bottom: 1px solid #ddd;
 }
 
@@ -377,7 +375,6 @@ th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
 }
 
 /*--------------------------------------공용--------------------------------------------------*/
-
 button{
   text-align: center;
   padding: 6px 18px;
@@ -462,7 +459,7 @@ input{
   border-radius: 4px;
   font-size: 1rem;
   font-family: 'Noto Sans', sans-serif;
-  text-align: left; /* 입력 필드는 왼쪽 정렬 */
+  text-align: left;
   font-weight: normal;
 }
 
@@ -477,7 +474,7 @@ input{
   padding: 12px;
   font-size: 1.1rem;
   margin-top: 10px;
-  background-color: #3d3d3d; /* 기존 버튼 색상과 통일 */
+  background-color: #3d3d3d;
 }
 
 .auth-btn:hover {
@@ -517,23 +514,23 @@ input{
 .nav-user {
   font-size: 16px;
   cursor: pointer;
-  display: inline-flex; /* ✨ 아이콘과 세로 중앙 정렬을 위해 flex로 변경 */
+  display: inline-flex; /* 아이콘과 세로 중앙 정렬을 위해 flex로 변경 */
   align-items: center;
 }
 
-/* ✨ CSS로 만드는 세모 아이콘 */
+/* CSS로 만드는 세모 아이콘 */
 .nav-user::after {
-  content: ''; /* 가상 요소는 content 속성이 필수 */
+  content: '';  /* 가상 요소는 content 속성이 필수 */
   width: 0;
   height: 0;
-  margin-left: 8px; /* 텍스트와 아이콘 사이 간격 */
+  margin-left: 8px;  /* 텍스트와 아이콘 사이 간격 */
 
   /* 세모 모양 만들기 (border 속성 활용) */
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
-  border-top: 5px solid white; /* 이 색상이 아이콘 색상이 됨 */
+  border-top: 5px solid white;  /* 이 색상이 아이콘 색상이 됨 */
 
-  transition: all 0.2s ease-in-out; /* 부드러운 애니메이션 효과 */
+  transition: all 0.2s ease-in-out;  /* 부드러운 애니메이션 효과 */
 }
 
 /* 헤더에 마우스를 올렸을 때 아이콘 색상 변경 */
@@ -546,34 +543,33 @@ input{
 }
 
 /*--------------------------------------auth enhancements--------------------------------------------------*/
-
 .form-group-inline {
   display: flex;
-  align-items: flex-end; /* label, input, button 수직 정렬 */
+  align-items: flex-end;  /* label, input, button 수직 정렬 */
   gap: 10px;
 }
 .form-group-inline .input-wrapper {
-  flex-grow: 1; /* 입력창이 남은 공간을 모두 차지하도록 */
+  flex-grow: 1;  /* 입력창이 남은 공간을 모두 차지하도록 */
 }
 .form-group-inline button {
   padding: 10px 15px;
-  flex-shrink: 0; /* 버튼 크기 고정 */
-  height: 47px; /* input 높이와 맞춤 */
+  flex-shrink: 0;  /* 버튼 크기 고정 */
+  height: 47px;  /* input 높이와 맞춤 */
 }
 
 .feedback-message {
   font-size: 0.9em;
   font-weight: bold;
   height: 20px;
-  margin-top: 5px; /* 입력창과 메시지 사이의 간격 조정 */
+  margin-top: 5px;  /* 입력창과 메시지 사이의 간격 조정 */
   margin-bottom: 10px;
   text-align: left;
 }
 .feedback-message.available {
-  color: #28a745; /* Green */
+  color: #28a745;
 }
 .feedback-message.unavailable {
-  color: #dc3545; /* Red */
+  color: #dc3545;
 }
 
 .form-divider {
@@ -600,16 +596,15 @@ input{
 }
 
 /*--------------------------------------profile page--------------------------------------------------*/
-
 /* readonly 속성이 있는 입력창 스타일 (수정) */
 input[readonly]:not(.datepicker-input) {
-  background-color: #e9ecef; /* 회색 배경 */
-  cursor: not-allowed;       /* 마우스 커서 변경 */
+  background-color: #ffffff;  /* 회색 배경 */
+  cursor: not-allowed;  /* 마우스 커서 변경 */
 }
 
 #start_date_dash[readonly],
 #end_date_dash[readonly] {
-    cursor: pointer !important; /* 마우스 커서를 손가락 모양으로 강제 변경 */
+    cursor: pointer !important;  /* 마우스 커서를 손가락 모양으로 강제 변경 */
 }
 
 /* 폼 안의 섹션 제목 (예: 비밀번호 변경) */
@@ -627,10 +622,9 @@ input[readonly]:not(.datepicker-input) {
 }
 
 /*--------------------------------------UI/UX Enhancements & Dropdown--------------------------------------------------*/
-
 /* 로그인 실패 시 form에 추가될 스타일 */
 .form-error .form-group input {
-  border-color: #dc3545; /* 빨간색 테두리 */
+  border-color: #dc3545;
   animation: shake 0.5s; /* 흔들리는 애니메이션 적용 */
 }
 
@@ -644,7 +638,6 @@ input[readonly]:not(.datepicker-input) {
 
 
 /*--------------------------------------Dropdown Menu (Final Code)--------------------------------------------------*/
-
 .nav-item-dropdown {
   position: relative;
 }
@@ -702,7 +695,6 @@ input[readonly]:not(.datepicker-input) {
   left: 50%;
   transform: translateX(-50%);
   background: linear-gradient(to bottom right, #17a2b8 20%, #467a85, #555);
-  /* background: linear-gradient(to bottom right, #17a2b8, #467a85); */
   color: white;
   padding: 15px 40px 15px 20px;
   border-radius: 8px;
@@ -711,28 +703,28 @@ input[readonly]:not(.datepicker-input) {
   display: flex;
   align-items: center;
   
-  /* ✨ 애니메이션을 위한 초기 상태 (숨김) */
+  /* 애니메이션을 위한 초기 상태 (숨김) */
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.3s, visibility 0.3s, top 0.3s;
 }
 
-/* 🚀 [신규] 성공(success) 및 오류(error) 상태에 대한 배경색 추가 */
+/* 성공(success) 및 오류(error) 상태에 대한 배경색 추가 */
 /* #toast-notification.success {
-  background: linear-gradient(to bottom right, #28a796, #218872); /* 녹색 계열
+  background: linear-gradient(to bottom right, #28a796, #218872);
 } */
 #toast-notification.error {
-  background: linear-gradient(to bottom right, #dc3545, #c82333); /* 붉은색 계열 */
+  background: linear-gradient(to bottom right, #dc3545, #c82333);
 }
 
-/* 🚀 [신규] 특정 탭에서만 보이는 컬럼을 위한 스타일 */
+/* 특정 탭에서만 보이는 컬럼을 위한 스타일 */
 .unsupervised-only {
-    display: none; /* 기본적으로 이 클래스를 가진 요소는 숨김 */
+    display: none; /* 기본적으로 이 클래스를 가진 요소는 숨김. */
 }
 
-/* ✨ JavaScript로 'show' 클래스가 추가될 때의 상태 (보임) */
+/* JavaScript로 'show' 클래스가 추가될 때의 상태 (보임) */
 #toast-notification.show {
-  top: 100px; /* 살짝 아래로 내려오면서 나타나는 효과 */
+  top: 100px;  /* 살짝 아래로 내려오면서 나타나는 효과 */
   opacity: 1;
   visibility: visible;
 }
@@ -782,19 +774,10 @@ input[readonly]:not(.datepicker-input) {
 .admin-table th {
   background-color: #f8f9fa;
 }
-.btn-delete {
-  padding: 5px 10px;
-  border-radius: 4px;
-  color: white;
-  border: none;
-  cursor: pointer;
-  font-size: 0.9em;
-}
-.btn-delete { background-color: #dc3545; }
 
 /* 관리자 뱃지 스타일 */
 .admin-badge {
-  color: #17a2b8; /* 포인트 색상 */
+  color: #17a2b8;
   font-weight: bold;
   font-size: 0.9em;
   margin-right: 5px;
@@ -816,7 +799,7 @@ input[readonly]:not(.datepicker-input) {
 .btn-delete {
   background-color: #dc3545;
   border: none;
-  padding: 10px 20px;
+  padding: 8px 20px;
   color: white;
   border-radius: 4px;
   cursor: pointer;
@@ -827,7 +810,7 @@ input[readonly]:not(.datepicker-input) {
 }
 
 .btn-promote {
-  background-color: #28a745; /* 초록색 */
+  background-color: #28a745;
   padding: 5px 10px;
   border-radius: 4px;
   color: white;
@@ -836,10 +819,10 @@ input[readonly]:not(.datepicker-input) {
   font-size: 0.9em;
 }
 .btn-demote {
-  background-color: #ffc107; /* 노란색 */
+  background-color: #ffc107;
   padding: 5px 10px;
   border-radius: 4px;
-  color: #333; /* 어두운 글씨 */
+  color: #333;
   border: none;
   cursor: pointer;
   font-size: 0.9em;
@@ -847,12 +830,12 @@ input[readonly]:not(.datepicker-input) {
 
 /* 현재 로그인한 관리자 행을 강조하는 스타일 */
 .current-admin-row {
-  background-color: #e7f3ff; /* 연한 파란색 배경 */
-  border-left: 3px solid #007bff; /* 왼쪽에 파란색 테두리 */
-  border-right: 3px solid #007bff; /* 오른쪽에 파란색 테두리 */
+  background-color: #e7f3ff;
+  border-left: 3px solid #007bff;
+  border-right: 3px solid #007bff;
 }
 .current-admin-row td {
-    font-weight: bold; /* 글씨를 살짝 굵게 */
+    font-weight: bold;  /* 글씨를 살짝 굵게 */
 }
 
 /* '(현재 계정)' 텍스트 스타일 */
@@ -865,14 +848,14 @@ input[readonly]:not(.datepicker-input) {
 /* ================================== 업로드 진행률 오버레이 ================================== */
 
 #upload-progress-overlay {
-  position: fixed; /* 화면 전체에 고정 */
+  position: fixed;  /* 화면 전체에 고정 */
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(0, 0, 0, 0.6); /* 반투명 검은색 배경 */
-  z-index: 2000; /* 다른 모든 요소들 위에 표시 */
-  display: none; /* 평소에는 숨김 */
+  background-color: rgba(0, 0, 0, 0.6);  /* 반투명 검은색 배경 */
+  z-index: 2000;  /* 다른 모든 요소들 위에 표시 */
+  display: none;  /* 평소에는 숨김. */
   justify-content: center;
   align-items: center;
 }
@@ -890,8 +873,8 @@ input[readonly]:not(.datepicker-input) {
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #f3f3f3; /* Light grey */
-  border-top: 4px solid #3498db; /* Blue */
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 20px;
@@ -914,19 +897,32 @@ input[readonly]:not(.datepicker-input) {
   width: 100%;
   background-color: #e0e0e0;
   border-radius: 5px;
-  overflow: hidden; /* 내부 바가 둥근 모서리를 넘지 않도록 */
+  overflow: hidden;  /* 내부 바가 둥근 모서리를 넘지 않도록 */
 }
 
 /* 실제 진행률을 나타내는 파란색 바 */
 #progress-bar {
-  width: 0%; /* JS로 이 너비를 조절합니다 */
+  width: 0%;  /* JS로 이 너비를 조절한다. */
   height: 20px;
   background-color: #3498db;
   text-align: center;
   line-height: 20px;
   color: white;
   border-radius: 5px;
-  transition: width 0.2s ease-in-out; /* 부드럽게 늘어나는 효과 */
+  transition: width 0.2s ease-in-out;  /* 부드럽게 늘어나는 효과 */
+  margin-right: auto;
+  margin-left: 0;
+}
+
+/* 업로드 취소 버튼 스타일 */
+.cancel-upload-btn {
+  margin-top: 20px;
+  background-color: #6c757d; /* 회색 계열 */
+  padding: 8px 25px;
+  font-size: 0.9rem;
+}
+.cancel-upload-btn:hover {
+  background-color: #5a6268;
 }
 
 /* ================================== 페이지네이션 ================================== */
@@ -950,7 +946,7 @@ input[readonly]:not(.datepicker-input) {
   padding: 8px 12px;
   text-decoration: none;
   border: 1px solid #ddd;
-  margin-left: -1px; /* 테두리 겹침 방지 */
+  margin-left: -1px;  /* 테두리 겹침 방지 */
   background-color: #fff;
 }
 .pagination .page-item:first-child .page-link {
@@ -977,15 +973,15 @@ input[readonly]:not(.datepicker-input) {
 .pagination .page-link:hover {
   background-color: #eee;
 }
-/* 🚀 [신규] 페이지네이션 링크 내부의 텍스트/아이콘 스타일 */
+/* 페이지네이션 링크 내부의 텍스트/아이콘 스타일 */
 .pagination .page-link {
   color: #337ab7;
   padding: 8px 12px;
   text-decoration: none;
   border: 1px solid #ddd;
-  margin-left: -1px; /* 테두리 겹침 방지 */
+  margin-left: -1px;  /* 테두리 겹침 방지 */
   background-color: #fff;
-  /* 💡 [추가] 폰트 두께를 굵게 하여 아이콘이 잘 보이도록 함 */
+  /* 폰트 두께를 굵게 하여 아이콘이 잘 보이도록 함. */
   font-weight: bold; 
 }
 
@@ -1002,14 +998,14 @@ input[readonly]:not(.datepicker-input) {
 }
 
 #help-popover {
-  display: none; /* 평소에는 숨김 */
-  position: absolute; /* 아이콘 위치를 기준으로 위치 결정 */
+  display: none;  /* 평소에는 숨김. */
+  position: absolute;  /* 아이콘 위치를 기준으로 위치 결정 */
   background-color: #333;
   color: white;
   padding: 15px 20px;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-  z-index: 2001; /* 로딩창보다도 위에 표시 */
+  z-index: 2001;  /* 로딩창보다도 위에 표시 */
   width: 300px;
   font-size: 0.9rem;
   line-height: 1.6;
@@ -1018,7 +1014,7 @@ input[readonly]:not(.datepicker-input) {
 #popover-content h4 {
   margin-top: 0;
   margin-bottom: 10px;
-  color: #17a2b8; /* 포인트 색상 */
+  color: #17a2b8;  /* 포인트 색상 */
   border-bottom: 1px solid #555;
   padding-bottom: 8px;
 }
@@ -1058,7 +1054,7 @@ input[readonly]:not(.datepicker-input) {
   font-size: 1.1rem;
   font-weight: 600;
   color: #888;
-  border-bottom: 3px solid transparent; /* 비활성 상태의 밑줄 */
+  border-bottom: 3px solid transparent;  /* 비활성 상태의 밑줄 */
   transition: all 0.2s ease-in-out;
 }
 .tab-btn:hover {
@@ -1067,42 +1063,59 @@ input[readonly]:not(.datepicker-input) {
 }
 .tab-btn.active {
   color: #007bff;
-  border-bottom-color: #007bff; /* 활성 상태의 밑줄 */
+  border-bottom-color: #007bff;  /* 활성 상태의 밑줄 */
 }
 
-/* 🚀 [최종 수정] 기존 .controls 스타일을 이 블록으로 완전히 교체해주세요. */
 .controls {
-  display: flex; /* Flexbox 레이아웃 활성화 */
-  align-items: center; /* 세로 중앙 정렬 */
-  padding: 10px 15px; /* 내부 여백 조정 */
-  background-color: #afafaf; /* 배경색 */
-  border-bottom: 1px solid #dee2e6;
-  width: 100%;
-  margin: 0 auto;
-}
-
-/* 🚀 [신규] 컨트롤 바 내부 그룹 스타일 */
-.controls .filter-group {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 8px; /* 요소 간 간격 */
+  padding: 10px 15px;
+  background-color: #f8f9fa;  /* 배경색을 더 연하게 변경 */
+  border: 1px solid #dee2e6;
+  color: #000;
+  border-radius: 5px;
+  margin-bottom: 15px;  /* 아래 섹션과의 간격 */
 }
 
+.controls .filter-group,
 .controls .action-group {
   display: flex;
   align-items: center;
-  gap: 8px; /* 요소 간 간격 */
-  margin-left: auto; /* 💡 핵심: 이 그룹을 오른쪽 끝으로 밀어냅니다. */
+  gap: 8px;
+  flex-wrap: wrap; /* 화면이 좁아지면 줄바꿈 허용 */
+}
+
+#search_term {
+  background-color: #ffffff;
+  border: 1px solid #212529;
+}
+
+/* 업로드 섹션을 별도로 스타일링 */
+#upload_section {
+  padding: 15px;
+  background-color: #e9ecef; /* 다른 섹션과 색상으로 구분 */
+  border-radius: 5px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#upload_section h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #495057;
 }
 
 #reclassify-selected-btn {
-  background-color: #fff;
-  color: #000;
+  background-color: #7a7a7a;
+  color: #fff;
 }
 
 .status-badge {
-  /* 💡 [수정] padding과 line-height를 조절하여 보기 좋게 만듭니다. */
-  padding: 2px 12px; /* 상하 여백을 줄이고, 좌우 여백을 늘림 */
+  /* padding과 line-height를 조절하여 보기 좋게 만든다. */
+  padding: 2px 12px;  /* 상하 여백을 줄이고, 좌우 여백을 늘림. */
   border-radius: 12px;
   color: white;
   font-weight: bold;
@@ -1112,12 +1125,12 @@ input[readonly]:not(.datepicker-input) {
 .status-running { background-color: #007bff; }
 .status-completed { background-color: #28a745; }
 .status-failed { background-color: #dc3545; }
-/* 🚀 [신규] 취소 상태에 대한 스타일 추가 */
+/* 취소 상태에 대한 스타일 추가 */
 .status-canceled { background-color: #ffc107; color: #212529; }
 
-/* 🚀 [신규] 모델 관리 페이지 UI 개선을 위한 스타일 */
+/* 모델 관리 페이지 UI 개선을 위한 스타일 */
 .retraining-status-section p {
-    margin-bottom: 10px; /* 상태, 최종 결과, 로그 텍스트의 상하 간격을 넓힘 */
+    margin-bottom: 10px; /* 상태, 최종 결과, 로그 텍스트의 상하 간격을 넓힘. */
 }
 .job-history-table {
     width: 100%;
@@ -1133,18 +1146,48 @@ input[readonly]:not(.datepicker-input) {
     background-color: #f8f9fa;
 }
 
-/* ================================== 반응형 웹 디자인 ================================== */
+/* ================================== 범용 액션 모달 ================================== */
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); z-index: 1500; display: flex; justify-content: center; align-items: center; }
+.modal-content { background-color: white; padding: 25px 30px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); width: 100%; max-width: 500px; }
+.modal-content h3 { margin-top: 0; margin-bottom: 20px; text-align: center; }
+.modal-content #modal-body { margin-bottom: 25px; }
+.modal-content .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+#modal-body .form-group { margin-bottom: 15px; }
+#modal-body label { font-weight: bold; display: block; margin-bottom: 10px; }
+#modal-body input, #modal-body select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+#modal-body .checkbox-group {
+  display: flex;  /* Flexbox 레이아웃 활성화 */
+  align-items: center;  /* 세로 중앙 정렬 */
+  gap: 8px;  /* 체크박스와 텍스트 사이 간격 */
+  margin-bottom: 12px;  /* 각 줄 사이의 간격 */
+}
 
+#modal-body .checkbox-group input[type="checkbox"] {
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;  /* flex 아이템이 줄어들지 않도록 설정 */
+}
+
+#modal-body .checkbox-group label {
+  font-weight: normal;  /* 글씨가 너무 굵다면 일반 굵기로 조절 */
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* ================================== 반응형 웹 디자인 ================================== */
 @media (max-width: 992px) {
   /* ------------------ [공통] 헤더 & 네비게이션 ------------------ */
   .site-header {
-    height: auto; /* 내용에 따라 높이 자동 조절 */
+    height: auto;  /* 내용에 따라 높이 자동 조절 */
   }
   .site-header .container {
-    flex-direction: column; /* 로고와 메뉴를 세로로 배치 */
+    flex-direction: column;  /* 로고와 메뉴를 세로로 배치 */
     height: auto;
     padding: 10px;
-    gap: 5px; /* 로고와 메뉴 사이 간격 */
+    gap: 5px;  /* 로고와 메뉴 사이 간격 */
   }
   .main-nav > ul {
     justify-content: center; 
@@ -1153,11 +1196,11 @@ input[readonly]:not(.datepicker-input) {
     align-items: center;
   }
   .main-nav a {
-    padding: 8px 12px; /* 메뉴 터치 영역 확보 */
+    padding: 8px 12px;  /* 메뉴 터치 영역 확보 */
     font-size: 15px;
   }
   .logo img {
-    height: 80px; /* 로고 크기 살짝 줄이기 */
+    height: 80px;
   }
   /* 드롭다운 메뉴 위치 조정 */
   .dropdown-menu {
@@ -1168,59 +1211,59 @@ input[readonly]:not(.datepicker-input) {
   
   /* ------------------ [index.html] 대시보드 페이지 ------------------ */
   .hero-overlay h1 {
-    font-size: 2rem; /* 제목 폰트 크기 줄이기 */
+    font-size: 2rem;
   }
   .hero-overlay p {
-    font-size: 1rem; /* 부제목 폰트 크기 줄이기 */
+    font-size: 1rem;
   }
 
   /* 대시보드: 기간 선택 컨트롤 */
   .dashboard-controls {
     display: flex;
-    flex-direction: column; /* 세로로 쌓이도록 변경 */
-    align-items: stretch; /* 항목들을 꽉 채우도록 정렬 */
-    gap: 10px; /* 항목 사이의 간격 추가 */
+    flex-direction: column;  /* 세로로 쌓이도록 변경 */
+    align-items: stretch;  /* 항목들을 꽉 채우도록 정렬 */
+    gap: 10px;  /* 항목 사이의 간격 추가 */
     padding: 15px;
   }
   .dashboard-controls input,
   .dashboard-controls button {
-    width: 100%; /* 입력창과 버튼의 너비를 100%로 설정 */
-    margin: 0; /* 불필요한 마진 제거 */
+    width: 100%;  /* 입력창과 버튼의 너비를 100%로 설정 */
+    margin: 0;  /* 불필요한 마진 제거 */
   }
   .dashboard-controls span {
-    text-align: center; /* "기간 선택 :" 텍스트 중앙 정렬 */
+    text-align: center;  /* "기간 선택 :" 텍스트 중앙 정렬 */
   }
 
   /* 대시보드: 실시간 현황과 도넛 차트 */
   .chart-container.flex-row {
-    display: flex; /* flexbox 레이아웃 적용 */
-    flex-direction: column; /* 세로로 쌓이도록 변경 */
-    height: auto; /* 내용에 따라 높이가 자동으로 조절되도록 */
-    gap: 20px; /* 실시간 현황과 차트 사이 간격 */
-    align-items: center; /* 가운데 정렬 */
+    display: flex;  /* flexbox 레이아웃 적용 */
+    flex-direction: column;  /* 세로로 쌓이도록 변경 */
+    height: auto;  /* 내용에 따라 높이가 자동으로 조절되도록 */
+    gap: 20px;  /* 실시간 현황과 차트 사이 간격 */
+    align-items: center;  /* 가운데 정렬 */
   }
 
   /* 실시간 현황 텍스트 스타일 */
   #realtime-status {
-    text-align: center; /* 텍스트 중앙 정렬 */
-    padding-left: 0; /* 불필요한 왼쪽 여백 제거 */
+    text-align: center;  /* 텍스트 중앙 정렬 */
+    padding-left: 0;  /* 불필요한 왼쪽 여백 제거 */
     width: 100%;
   }
 
   /* 도넛 차트(canvas) 스타일 */
   .chart-container.flex-row canvas {
-    flex-basis: auto; /* flex 비율 초기화 */
-    max-width: 100%; /* 너비가 컨테이너를 넘어가지 않도록 */
-    height: 280px !important; /* 모바일에서 적절한 높이로 강제 지정 */
+    flex-basis: auto;  /* flex 비율 초기화 */
+    max-width: 100%;  /* 너비가 컨테이너를 넘어가지 않도록 */
+    height: 280px !important;  /* 모바일에서 적절한 높이로 강제 지정 */
   }
 
   /* 대시보드: 전체 차트 컨테이너 및 섹션 */
   .chart-container {
-    height: 350px; /* 모바일에서 차트 높이를 적절하게 조절 */
+    height: 350px;  /* 모바일에서 차트 높이를 적절하게 조절 */
     margin: 20px auto;
   }
   .chart-section {
-    padding: 20px 10px; /* 상하, 좌우 패딩 줄이기 */
+    padding: 20px 10px;  /* 상하, 좌우 패딩 줄이기 */
     width: 100%;
     margin: 30px auto;
   }
@@ -1231,25 +1274,25 @@ input[readonly]:not(.datepicker-input) {
 
   /* ------------------ [list.html] 목록 페이지 ------------------ */
   .list-section {
-    padding: 100px 15px 50px 15px; /* 상단 여백 줄이고 좌우 여백 통일 */
+    padding: 100px 15px 50px 15px;  /* 상단 여백 줄이고 좌우 여백 통일 */
   }
 
   /* 목록: 검색 조건 영역 */
-  /* 🚀 [수정] 목록 페이지 컨트롤 바에 대한 반응형 스타일 */
+  /* 목록 페이지 컨트롤 바에 대한 반응형 스타일 */
   .controls {
-    flex-direction: column; /* 그룹들을 세로로 쌓음 */
-    align-items: stretch; /* 그룹들이 가로로 꽉 차도록 함 */
-    gap: 15px; /* 그룹 사이의 간격 */
+    flex-direction: column;  /* 그룹들을 세로로 쌓음 */
+    align-items: stretch;  /* 그룹들이 가로로 꽉 차도록 함. */
+    gap: 15px;  /* 그룹 사이의 간격 */
   }
 
   .controls .filter-group,
   .controls .action-group {
-    flex-wrap: wrap; /* 그룹 내부의 아이템들이 줄바꿈되도록 함 */
-    justify-content: flex-start; /* 줄바꿈 시 왼쪽부터 정렬 */
+    flex-wrap: wrap; /* 그룹 내부의 아이템들이 줄바꿈되도록 함. */
+    justify-content: flex-start;  /* 줄바꿈 시 왼쪽부터 정렬 */
   }
 
   .controls .action-group {
-    justify-content: flex-end; /* 데이터 관리 버튼들은 오른쪽 정렬 유지 */
+    justify-content: flex-end;  /* 데이터 관리 버튼들은 오른쪽 정렬 유지 */
   }
   /* 컨트롤 내부의 모든 자식 요소(input, button 등)의 기본 마진 제거 */
   .controls > * {
@@ -1264,49 +1307,49 @@ input[readonly]:not(.datepicker-input) {
   }
   /* 파일명 검색 입력창이 가변적으로 너비를 가지도록 설정 */
   .controls input[type="text"]#search_term {
-    flex-grow: 1; /* 핵심: 남는 수평 공간을 이 입력창이 모두 차지하도록 함 */
-    min-width: 180px; /* 화면이 좁아져도 최소한의 너비를 유지 */
+    flex-grow: 1;  /* 핵심: 남는 수평 공간을 이 입력창이 모두 차지하도록 함. */
+    min-width: 180px;  /* 화면이 좁아져도 최소한의 너비를 유지 */
   }
 
   /* 버튼들은 자동으로 늘어나지 않도록 설정 */
   .controls button,
   .controls a.export-btn {
-    flex-grow: 0; /* 너비가 늘어나지 않도록 고정 */
-    flex-shrink: 0; /* 너비가 줄어들지 않도록 고정 */
+    flex-grow: 0;  /* 너비가 늘어나지 않도록 고정 */
+    flex-shrink: 0;  /* 너비가 줄어들지 않도록 고정 */
   }
 
   /* 목록: 이미지 업로드 영역 */
   #upload_modal {
-    flex-direction: column; /* 세로로 쌓기 */
-    align-items: stretch; /* 너비 100%로 통일 */
-    gap: 12px; /* 요소 간 간격 */
+    flex-direction: column;  /* 세로로 쌓기 */
+    align-items: stretch;  /* 너비 100%로 통일 */
+    gap: 12px;  /* 요소 간 간격 */
     padding: 15px;
   }
   #upload_modal h3 {
-    text-align: center; /* 제목 중앙 정렬 */
+    text-align: center;  /* 제목 중앙 정렬 */
     margin-right: 0;
   }
   #upload_modal input {
     width: 100%;
-    margin: 0 !important; /* 강제로 마진 제거 */
+    margin: 0 !important;  /* 강제로 마진 제거 */
   }
 
   /* 목록: 테이블 가로 스크롤 생성 */
   #list-container {
-      overflow-x: auto; /* 테이블 내용이 넘칠 경우 가로 스크롤 생성 */
+      overflow-x: auto;  /* 테이블 내용이 넘칠 경우 가로 스크롤 생성 */
   }
   #list-container table {
       width: 100%;
-      min-width: 800px; /* 테이블의 최소 너비를 지정해 강제로 스크롤바 생성 */
+      min-width: 800px;  /* 테이블의 최소 너비를 지정해 강제로 스크롤바 생성 */
   }
 
   /* ------------------ [auth] 로그인/회원가입 페이지 ------------------ */
   .auth-container {
     margin: 100px auto 50px;
     padding: 20px;
-    width: 90%; /* 화면 너비에 맞게 조절 */
-    box-shadow: none; /* 그림자 효과 제거 */
-    border: 1px solid #eee; /* 얇은 테두리로 변경 */
+    width: 90%;  /* 화면 너비에 맞게 조절 */
+    box-shadow: none;  /* 그림자 효과 제거 */
+    border: 1px solid #eee;  /* 얇은 테두리로 변경 */
   }
   .auth-container h2 {
     font-size: 1.6rem;
@@ -1328,12 +1371,12 @@ input[readonly]:not(.datepicker-input) {
     /* 회원가입/로그인 폼 그룹 간격 조절 */
     .form-group-inline {
         flex-direction: column;
-        align-items: stretch; /* 라벨, 인풋, 버튼이 모두 꽉 차도록 */
+        align-items: stretch;  /* 라벨, 인풋, 버튼이 모두 꽉 차도록 */
         gap: 8px;
     }
     .form-group-inline button {
         height: auto;
-        padding: 12px; /* 다른 버튼들과 높이를 맞춤 */
+        padding: 12px;  /* 다른 버튼들과 높이를 맞춤. */
     }
     
     /* 토스트 알림 위치 조정 */
@@ -1361,10 +1404,10 @@ input[readonly]:not(.datepicker-input) {
     /* 회원가입/로그인 폼 그룹 간격 조절 */
     .form-group-inline {
         flex-direction: column;
-        align-items: stretch; /* 라벨, 인풋, 버튼이 모두 꽉 차도록 */
+        align-items: stretch;  /* 라벨, 인풋, 버튼이 모두 꽉 차도록 */
     }
     .form-group-inline button {
         height: auto;
-        padding: 12px; /* 다른 버튼들과 높이를 맞춤 */
+        padding: 12px;  /* 다른 버튼들과 높이를 맞춤. */
     }
 }

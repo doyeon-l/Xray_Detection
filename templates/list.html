@@ -17,7 +17,7 @@
     .note-btn:hover { background-color: #5a6268; }
     .note-text { font-size: 0.9em; color: #555; }
 
-    /* 🚀 [신규] XAI 버튼 스타일 */
+    /* XAI 버튼 스타일 */
     .xai-btn {
         padding: 4px 8px;
         background-color: #17a2b8;
@@ -29,6 +29,15 @@
     }
     .xai-btn:hover { background-color: #138496; }
     .xai-btn:disabled { background-color: #ccc; cursor: not-allowed; }
+
+    /* XAI 이미지가 이미 생성된 버튼의 스타일 (초록색) */
+    .xai-btn.generated {
+        background-color: #28a745; /* '성공/완료'를 의미하는 초록색 */
+    }
+
+    .xai-btn.generated:hover {
+        background-color: #218838; /* 호버 시 더 어두운 초록색 */
+    }
 
 	#image-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 1000;}
     #modal-img { max-width: 90%; max-height: 90%; }
@@ -45,8 +54,8 @@
         <button class="tab-btn" data-model="U">비지도학습</button>
     </div>
 
+    <!-- 1. 조회 기능 섹션 -->
     <div class="controls">
-        <!-- 1. 왼쪽 그룹 (조회 기능) -->
         <div class="filter-group">
             <span>기준일:</span>
             <input type="text" id="from_date" readonly> ~ <input type="text" id="to_date" readonly>
@@ -57,25 +66,29 @@
             </select>
             <input type="text" id="search_term" placeholder="파일명 검색...">
             <button id="search_btn">검색</button>
-            <a href="#" id="export_btn" class="export-btn">CSV로 내보내기</a>
         </div>
+    </div>
 
-    <!-- 2. 오른쪽 그룹 (데이터 관리 기능) -->
+    <!-- 2. 데이터 관리 기능 섹션 -->
+    <div class="controls">
         <div class="action-group">
             <span id="reclassified-info" style="font-weight: bold; margin-right: 15px; display: none;"></span>
+            <button id="batch-reclassify-btn">일괄 판정 전환</button>
             <button id="reclassify-selected-btn">선택 판정 반전</button>
             <button id="delete-btn" class="btn-delete">선택 삭제</button>
             <button id="delete-by-date-btn" class="btn-delete">기간 삭제</button>
             <button id="delete-all-btn" class="btn-delete">전체 삭제</button>
+            <a href="#" id="export_btn" class="export-btn">CSV로 내보내기</a>
         </div>
     </div>
 
-    <div id="upload_modal">
-        <h3>이미지 업로드</h3>
-        기준일:
+    <!-- 3. 이미지 업로드 섹션 -->
+    <div id="upload_section">
+        <h3>이미지 업로드:</h3>
+        <span>기준일:</span>
         <input type="text" id="upload_std_date" readonly>
         <input type="file" id="upload_files" multiple>
-        <button id="confirm_upload">업로드</button>
+        <button id="confirm_upload">업로드 실행</button>
     </div>
 
     <br/>
@@ -123,6 +136,10 @@
         let currentPage = 1;  // 현재 페이지 상태를 관리하는 변수
         const itemsPerPage = 20;  // 한 페이지에 표시할 항목 수
         let currentModelTab = 'S';  // 현재 활성화된 탭을 관리 ('S'가 기본)
+
+        // 현재 업로드의 XHR과 Socket 객체를 저장할 전역 변수
+        let currentUploadXhr = null;
+        let currentUploadSocket = null;
 
         // --- 날짜 선택기 초기화 ---
         const today = new Date();
@@ -208,7 +225,88 @@
 
                 $('#result_body').empty();
                 $('#total_count').text(totalItems);
-                $('#export_btn').attr('href', '/api/export?' + $.param(params));
+                // CSV 내보내기 버튼 클릭 시 모달 창 표시
+                $('#export_btn').on('click', function() {
+                    // 오늘 날짜를 YYYY-MM-DD 형식으로 기본값 설정
+                    const today = new Date().toISOString().slice(0, 10);
+
+                    $('#modal-title').text('CSV 상세 내보내기 옵션');
+                    $('#modal-body').html(`
+                        <div class="form-group">
+                            <label>기간 선택:</label>
+                            <input type="date" id="csv-from-date" value="${today}"> ~ <input type="date" id="csv-to-date" value="${today}">
+                        </div>
+                        <div class="form-group">
+                            <label>모델 선택:</label>
+                            <select id="csv-model-gb">
+                                <option value="S">지도학습</option>
+                                <option value="U">비지도학습</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>판정 상태 필터:</label>
+                            <select id="csv-yolo-class">
+                                <option value="">모두</option>
+                                <option value="1">GOOD만</option>
+                                <option value="0">BAD만</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>재분류 필터:</label>
+                            <select id="csv-is-reclassified">
+                                <option value="">모두</option>
+                                <option value="1">재분류된 항목만</option>
+                                <option value="0">원본 판정 항목만</option>
+                            </select>
+                        </div>
+                        <hr style="margin: 20px 0;">
+                        <div class="form-group">
+                            <label>포함할 추가 정보:</label>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="csv-include-score">
+                                <label for="csv-include-score">신뢰도 점수(지도) / 이상 점수(비지도)</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="csv-include-note">
+                                <label for="csv-include-note">메모 내용</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="csv-include-history">
+                                <label for="csv-include-history">수정 이력</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="csv-include-xai">
+                                <label for="csv-include-xai">XAI 이미지 경로</label>
+                            </div>
+                        </div>
+                    `);
+
+                    // 모달의 확인 버튼 클릭 시 동작
+                    $('#modal-confirm-btn').text('내보내기').off('click').on('click', function() {
+                        const params = {
+                            from_date: $('#csv-from-date').val().replace(/-/g, ''),
+                            to_date: $('#csv-to-date').val().replace(/-/g, ''),
+                            model_gb: $('#csv-model-gb').val(),
+                            yolo_class: $('#csv-yolo-class').val(),
+                            is_reclassified: $('#csv-is-reclassified').val(),
+                            include_score: $('#csv-include-score').is(':checked'),
+                            include_note: $('#csv-include-note').is(':checked'),
+                            include_history: $('#csv-include-history').is(':checked'),
+                            include_xai_path: $('#csv-include-xai').is(':checked'),
+                            include_note: $('#csv-include-note').is(':checked'),
+                            include_history: $('#csv-include-history').is(':checked'),
+                            include_xai_path: $('#csv-include-xai').is(':checked')
+                        };
+                        
+                        // 파라미터를 쿼리 스트링으로 만들어 새 창에서 다운로드
+                        const queryString = $.param(params);
+                        window.location.href = `/api/export?${queryString}`;
+
+                        $('#action-modal').fadeOut();
+                    });
+
+                    $('#action-modal').fadeIn();
+                });
 
                 let displayData = data;
                 if ($('#anomaly_filter').val() === 'high') {
@@ -226,6 +324,10 @@
                     const anomalyScoreText = (row.anomaly_score != null) ? row.anomaly_score.toFixed(4) : 'N/A';
                     const anomalyStyle = (row.anomaly_score > 0.1) ? 'color: red; font-weight: bold;' : '';
                     const modelText = row.model_gb === 'S' ? '지도' : (row.model_gb === 'U' ? '비지도' : 'N/A');
+
+                    // XAI 이미지 경로 존재 여부를 확인하여 버튼에 'generated' 클래스를 추가
+                    const hasXai = row.xai_image_path ? 'generated' : '';
+                    const xaiBtn = `<button class="xai-btn ${hasXai}" data-id="${row.id}">보기</button>`;
 
                     // 테이블 행(tr)에 수정자, 수정일시 데이터 셀(td) 추가
                     const tr = `
@@ -245,7 +347,7 @@
                         <td>${reclassifyBtn}</td>
                         <td>${row.modified_by || ''}</td>
                         <td>${row.modified_at || ''}</td>
-                        <td><button class="xai-btn" data-id="${row.id}">보기</button></td>
+                        <td>${xaiBtn}</td>
                     </tr>`;
                     $('#result_body').append(tr);
                 });
@@ -298,9 +400,20 @@
             loadList(1);
         });
 
-        // 검색 시에는 항상 1페이지부터 조회
-        $('#search_btn, #anomaly_filter, #class_filter').on('click change', function() { loadList(1); });
-        $('#search_term').on('keypress', e => { if (e.which === 13) loadList(1); });
+        // 검색 버튼을 클릭했을 때만 1페이지로 새로고침
+        $('#search_btn').on('click', function() {
+            loadList(1);
+        });
+
+        // 필터 변경(change)이나 검색어 입력(keypress)은 '검색' 버튼 클릭으로 이어지도록 한다.
+        $('#anomaly_filter, #class_filter').on('change', function() {
+            // 필터만 바꾸고, 자동으로 검색하지 않는다.
+        });
+        $('#search_term').on('keypress', e => { 
+            if (e.which === 13) { // Enter 키를 누르면
+            $('#search_btn').click(); // 검색 버튼을 클릭한 것과 동일하게 동작
+            }
+        });
         
         // 페이지네이션 링크 클릭 이벤트
         $(document).on('click', '.pagination a', function(e) {
@@ -325,76 +438,145 @@
             loadList(currentPage);  // 현재 페이지에서 정렬
         });
 
-        // 업로드 버튼 클릭 이벤트
+        // 업로드 버튼 클릭 이벤트를 웹소켓 방식으로 수정
         $('#confirm_upload').on('click', function () {
             const formData = new FormData();
             const files = $('#upload_files')[0].files;
             const stdDate = $('#upload_std_date').val().replace(/-/g, '');
+            const modelGb = currentModelTab;
 
-            if (!stdDate) { alert('기준일을 선택하세요.'); return; }
-            if (files.length === 0) { alert("업로드할 파일을 선택하세요."); return; }
+            if (!stdDate || files.length === 0) {
+                showToast('기준일과 업로드할 파일을 모두 선택해주세요.', 'error');
+                return;
+            }
 
             formData.append('std_date', stdDate);
-            // 현재 활성화된 탭의 모델 종류를 함께 전송
-            formData.append('model_gb', currentModelTab);
+            formData.append('model_gb', modelGb);
             for (let i = 0; i < files.length; i++) { formData.append('files', files[i]); }
 
             const overlay = $('#upload-progress-overlay');
             const progressBar = $('#progress-bar');
             const progressText = $('#progress-text');
+            
+            // ----- 1. 웹소켓 연결 및 이벤트 리스너 설정 -----
+            // 연결과 동시에 고유한 세션 ID(sid)를 받는다.
+            currentUploadSocket = io(); // 소켓을 전역 변수에 저장
+            let sid = null;
 
-            progressBar.css('width', '0%').text('');
-            progressText.text('업로드 준비 중...');
-            overlay.css('display', 'flex').hide().fadeIn(200);
-
-            $.ajax({
-                url: '/upload',
-                type: 'POST',
-                data: formData,
-                contentType: false,
-                processData: false,
-                xhr: function() {
-                    const xhr = new window.XMLHttpRequest();
-                    xhr.upload.addEventListener('progress', function(evt) {
-                        if (evt.lengthComputable) {
-                            const percentComplete = Math.round((evt.loaded / evt.total) * 100);
-                            progressBar.css('width', percentComplete + '%').text(percentComplete + '%');
-                            progressText.text(`업로드 중...`);
-                        }
-                    }, false);
-                    return xhr;
-                },
-                success: function (response) {
-                    if (response.status === 'success') {
-                        progressText.text('업로드 완료!');
-                        setTimeout(() => {
-                            overlay.fadeOut(300);
-                            loadList(1);  // 업로드 후 1페이지로 이동
-                        }, 1000);
-                    } else {
-                        alert('업로드 중 오류: ' + response.message);
-                        overlay.fadeOut(300);
-                    }
-                },
-                error: function () {
-                    alert('업로드 중 서버 오류가 발생했습니다.');
-                    overlay.fadeOut(300);
-                }
+            // 연결 성공 시
+            currentUploadSocket.on('connect', function() {
+                sid = currentUploadSocket.id;
+                startUpload();
             });
+
+            // 자원 정리 함수
+            function cleanup() {
+                if (currentUploadSocket) {
+                    currentUploadSocket.disconnect();
+                    currentUploadSocket = null;
+                }
+                currentUploadXhr = null;
+            }
+
+            currentUploadSocket.on('upload_progress', function(data) {
+                const percent = Math.round((data.current / data.total) * 100);
+                progressBar.css('width', percent + '%'); // 바 업데이트
+                progressText.text(`서버 처리 중... (${data.current}/${data.total})`);
+            });
+            
+            currentUploadSocket.on('upload_complete', function(data) {
+                if (data.status === 'success') {
+                    progressBar.css('width', '100%');
+                    progressText.text('작업 완료!');
+                } else {
+                    progressText.text(data.message);
+                }
+                setTimeout(() => { 
+                    overlay.fadeOut(300);
+                    loadList(1);
+                    cleanup();
+                }, 1000);
+            });
+            
+            currentUploadSocket.on('upload_canceled', function(data) {
+                showToast(data.message, 'warning');
+                overlay.fadeOut(300);
+                cleanup();
+            });
+
+            function startUpload() {
+                currentUploadXhr = $.ajax({ // AJAX 객체를 전역 변수에 저장
+                    url: `/upload?sid=${sid}`,
+                    type: 'POST',
+                    data: formData,
+                    contentType: false,
+                    processData: false,
+                    xhr: function() {
+                        const xhr = new window.XMLHttpRequest();
+                        xhr.upload.addEventListener('progress', function(evt) {
+                            if (evt.lengthComputable) {
+                                const percent = Math.round((evt.loaded / evt.total) * 100);
+                                progressBar.css('width', percent + '%');
+                                progressText.text(`파일 전송 중... ${percent}%`);
+                            }
+                        }, false);
+                        return xhr;
+                    },
+                    success: function (response) {
+                        currentUploadXhr = null; // 전송이 끝났으므로 XHR 변수는 비움
+                        if (response.status === 'processing_started') {
+                            progressBar.css('width', '0%'); // 바는 0%로 초기화
+                            progressText.text('서버에서 처리 대기 중...');
+                        } else {
+                            showToast(response.message || '업로드 요청 실패', 'error');
+                            overlay.fadeOut(300);
+                            cleanup();
+                        }
+                    },
+                    error: function (jqXHR, textStatus, errorThrown) {
+                        if (textStatus !== 'abort') {
+                            showToast('파일 전송 중 서버 오류가 발생했습니다.', 'error');
+                            overlay.fadeOut(300);
+                            cleanup();
+                        }
+                    }
+                });
+            }
+        
+            // 로딩창 초기 상태 설정
+            progressBar.css('width', '0%');  // 항상 0%에서 시작
+            progressText.text('파일 준비 중...');
+            overlay.css('display', 'flex').hide().fadeIn(200);
+        });
+
+        // 업로드 취소 버튼 클릭 이벤트 핸들러
+            $(document).on('click', '#cancel-upload-btn', function() {
+            // 1. 파일 전송(AJAX)이 진행 중이면, 전송을 중단한다.
+            if (currentUploadXhr) {
+                currentUploadXhr.abort();
+                showToast('업로드를 취소했습니다.', 'warning');
+                $('#progress-text').text('취소 중...');
+                $('#upload-progress-overlay').fadeOut(300);
+            } 
+            // 2. 서버 처리(WebSocket)가 진행 중이면, 서버에 취소 요청을 보낸다.
+            else if (currentUploadSocket && currentUploadSocket.connected) {
+                currentUploadSocket.emit('cancel_upload');
+                $('#progress-text').text('취소 요청 중...');
+            }
         });
 
         // 재분류 개수를 확인하고 업데이트하는 함수
         function checkReclassifiedCount() {
-        $.getJSON('/api/reclassified_count', function(data) {
-            const count = data.count;
-            const infoSpan = $('#reclassified-info');
-            if (count > 0) {
-                infoSpan.html(`재분류: <span style="color: #007bff;">${count}</span>건`);
-                infoSpan.show();
-            } else {
-                infoSpan.hide();
-            }
-        });
+            $.getJSON('/api/reclassified_count', function(data) {
+                const count = data.count;
+                const infoSpan = $('#reclassified-info');
+                if (count > 0) {
+                    infoSpan.html(`재분류: <span style="color: #007bff;">${count}</span>건`);
+                    infoSpan.show();
+                } else {
+                    infoSpan.hide();
+                }
+            });
         }
 
         // 재분류 작업이 끝날 때마다 개수를 다시 확인하도록 호출 추가
@@ -479,7 +661,7 @@
             },
             xai: {
                 title: 'XAI (설명 가능한 AI)',
-                text: "'보기' 버튼을 클릭하면 AI가 이미지의 어느 부분을 보고 판정을 내렸는지 <strong>히트맵(Heatmap)</strong>으로 시각화하여 보여줍니다. 이를 통해 AI의 판단 근거를 이해하고 신뢰도를 평가할 수 있습니다."
+                text: "'보기' 버튼을 클릭하면 AI가 이미지의 어느 부분을 보고 판정을 내렸는지 <strong>히트맵(Heatmap)</strong>으로 시각화하여 보여줍니다.<br><br><strong>중요:</strong> '보기' 버튼을 실행해야 XAI 이미지가 생성되며, 생성된 이후에만 CSV 내보내기에 경로가 포함됩니다.<br><br><strong>버튼 색상 안내:</strong> <strong>파란색 버튼</strong>은 아직 생성되지 않은 상태이며, <strong>초록색 버튼</strong>은 이미지가 생성되어 바로 볼 수 있는 상태입니다."
             }
         };
 
@@ -556,6 +738,8 @@
                         loadList(1);
                         // 2. '전체 선택' 체크박스를 해제
                         $('#check_all').prop('checked', false);
+                        // 3. 삭제 후 재분류 개수를 다시 확인
+                        checkReclassifiedCount();
                     },
                     error: function() {
                         alert("삭제 중 오류가 발생했습니다.");
@@ -564,27 +748,89 @@
             }
         });
 
-        // 기간별 삭제 버튼 클릭 이벤트
+        // '기간 삭제' 버튼 클릭 시
         $('#delete-by-date-btn').on('click', function() {
-            const fromDate = $('#from_date').val().replace(/-/g, '');
-            const toDate = $('#to_date').val().replace(/-/g, '');
-            
-            if (confirm(`정말로 ${fromDate}부터 ${toDate}까지의 모든 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다!`)) {
+            $('#modal-title').text('기간별 데이터 삭제');
+            $('#modal-body').html(`
+                <div class="form-group">
+                    <label>삭제할 기간을 선택하세요. 이 작업은 되돌릴 수 없습니다.</label>
+                    <input type="date" id="modal-from-date"> ~ <input type="date" id="modal-to-date">
+                </div>
+            `);
+            $('#modal-confirm-btn').text('삭제 실행').off('click').on('click', function() {
+                const fromDate = $('#modal-from-date').val().replace(/-/g, '');
+                const toDate = $('#modal-to-date').val().replace(/-/g, '');
+                if (!fromDate || !toDate) return showToast('기간을 올바르게 선택해주세요.', 'error');
+                
                 $.ajax({
-                    url: '/api/delete_by_date',
-                    type: 'POST',
-                    contentType: 'application/json',
+                    url: '/api/delete_by_date', type: 'POST', contentType: 'application/json',
                     data: JSON.stringify({ from_date: fromDate, to_date: toDate }),
                     success: function(res) {
-                        if (res.status === 'success') {
-                            alert(`${res.deleted_count}건의 데이터가 삭제되었습니다.`);
-                            loadList(1);  // 1페이지로 새로고침
-                        }
+                        showToast(`${res.deleted_count}건의 데이터가 휴지통으로 이동했습니다.`, 'success');
+                        loadList(1); checkReclassifiedCount();
                     },
-                    error: function() { alert('삭제 중 오류가 발생했습니다.'); }
+                    error: function() { showToast('삭제 중 오류가 발생했습니다.', 'error'); }
                 });
+                $('#action-modal').fadeOut();
+            });
+            $('#action-modal').fadeIn();
+        });
+
+        // '일괄 판정 전환' 버튼 클릭 시
+        $('#batch-reclassify-btn').on('click', function() {
+            const total = $('#total_count').text();
+            const modelName = currentModelTab === 'S' ? '지도학습' : '비지도학습';
+
+            $('#modal-title').text('일괄 판정 전환');
+            $('#modal-body').html(`
+                <p><strong>적용 대상:</strong> 현재 조회된 <strong>(${modelName}) ${total}건</strong> 전체</p>
+                <div class="form-group">
+                    <label for="modal-from-class">다음 판정의 항목을:</label>
+                    <select id="modal-from-class">
+                        <option value="0">BAD (불량)</option>
+                        <option value="1">GOOD (정상)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="modal-to-class">아래 판정으로 변경합니다:</label>
+                    <select id="modal-to-class">
+                        <option value="1">GOOD (정상)</option>
+                        <option value="0">BAD (불량)</option>
+                    </select>
+                </div>
+            `);
+            $('#modal-confirm-btn').text('전환 실행').off('click').on('click', function() {
+                const params = {
+                    from_date: $('#from_date').val().replace(/-/g, ''),
+                    to_date: $('#to_date').val().replace(/-/g, ''),
+                    from_class: $('#modal-from-class').val(),
+                    to_class: $('#modal-to-class').val(),
+                    model_gb: currentModelTab
+                };
+
+                if (confirm(`정말로 현재 조회된 모든 항목에 대해 판정을 전환하시겠습니까?`)) {
+                    $.ajax({
+                        url: '/api/reclassify_by_period', type: 'POST', contentType: 'application/json',
+                        data: JSON.stringify(params),
+                        success: function(res) {
+                            showToast(res.message, 'success');
+                            reclassifyCompleteHandler();
+                        },
+                        error: function() { showToast('일괄 전환 중 오류가 발생했습니다.', 'error'); }
+                    });
+                    $('#action-modal').fadeOut();
+                }
+            });
+            $('#action-modal').fadeIn();
+        });
+
+        // 모달 취소 버튼 및 오버레이 클릭 시 닫기
+        $('#modal-cancel-btn, #action-modal').on('click', function(e) {
+            if (e.target === this) {
+                $('#action-modal').fadeOut();
             }
         });
+        $('.modal-content').on('click', function(e) { e.stopPropagation(); });
 
         // 전체 삭제 버튼 클릭 이벤트
         $('#delete-all-btn').on('click', function() {
@@ -596,6 +842,8 @@
                         if (res.status === 'success') {
                             alert('모든 데이터가 삭제되었습니다.');
                             loadList(1);  // 1페이지로 새로고침
+                            // 삭제 후 재분류 개수를 다시 확인
+                            checkReclassifiedCount();
                         }
                     },
                     error: function() { alert('삭제 중 오류가 발생했습니다.'); }

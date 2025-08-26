@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}휴지통{% endblock %}
+
+{% block content %}
+<div class="list-section">
+    <h2 class="list_title">휴지통</h2>
+    <p style="text-align: center; margin-top: -30px; margin-bottom: 30px;">삭제된 항목은 여기서 복원하거나 영구적으로 삭제할 수 있습니다.</p>
+
+    <!-- 휴지통 전용 컨트롤 바 -->
+    <div class="controls">
+        <div class="action-group" style="width: 100%; justify-content: flex-end;">
+        <button id="restore-selected-btn" class="btn-promote">선택 복원</button>
+        <button id="delete-permanent-btn" class="btn-delete">선택 영구 삭제</button>
+        <button id="empty-trash-btn" class="btn-delete">휴지통 비우기</button>
+        </div>
+    </div>
+
+    <br/>
+    <div>총 건수: <span id="total_count">0</span></div>
+    <div id="list-container">
+        <table>
+            <thead>
+            <tr>
+                <th><input type="checkbox" id="check_all"></th>
+                <th>이미지</th>
+                <th>파일명</th>
+                <th>모델</th>
+                <th>최종 판정</th>
+                <th>업로드 일시</th>
+            </tr>
+            </thead>
+            <tbody id="result_body"></tbody>
+        </table>
+    </div>
+    <div id="pagination-controls"></div>
+</div>
+
+<script>
+$(function() {
+    let currentPage = 1;
+    const itemsPerPage = 20;
+
+    function loadTrashList(page = 1) {
+        currentPage = page;
+        $.get('/api/trash_list', { page: currentPage, limit: itemsPerPage }, function(response) {
+            $('#result_body').empty();
+            $('#total_count').text(response.total);
+
+            $.each(response.data, function(_, row) {
+                const modelText = row.model_gb === 'S' ? '지도' : '비지도';
+                const statusText = Number(row.yolo_class) === 1 ? '<b style="color:blue">GOOD</b>' : '<b style="color:red">BAD</b>';
+                const tr = `
+                  <tr>
+                    <td><input type="checkbox" class="row_chk" data-id="${row.id}"></td>
+                    <td><img src="/${row.image_path}" class="thumbnail" data-full="/${row.image_path}"></td>
+                    <td>${row.org_image_name || ''}</td>
+                    <td><b>${modelText}</b></td>
+                    <td>${statusText}</td>
+                    <td>${row.created_at || ''}</td>
+                  </tr>`;
+                $('#result_body').append(tr);
+            });
+            // (페이지네이션 렌더링 함수는 list.html의 것과 동일)
+        });
+    }
+    
+    // 선택 복원
+    $('#restore-selected-btn').on('click', function() {
+        const ids = $('.row_chk:checked').map((_, el) => $(el).data('id')).get();
+        if (ids.length === 0) return showToast('복원할 항목을 선택해주세요.', 'warning');
+        if (confirm(`${ids.length}개 항목을 복원하시겠습니까?`)) {
+            $.post('/api/restore', JSON.stringify({ ids }), function(res) {
+                showToast(res.message, 'success');
+                loadTrashList(1);
+            }, 'json').fail(err => showToast(err.responseJSON.message, 'error'));
+        }
+    });
+    
+    // 선택 영구 삭제
+    $('#delete-permanent-btn').on('click', function() {
+        const ids = $('.row_chk:checked').map((_, el) => $(el).data('id')).get();
+        if (ids.length === 0) return showToast('영구 삭제할 항목을 선택해주세요.', 'warning');
+        if (confirm(`정말로 ${ids.length}개 항목을 영구 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다!`)) {
+            $.post('/api/delete_permanent', JSON.stringify({ ids }), function(res) {
+                showToast(res.message, 'success');
+                loadTrashList(1);
+            }, 'json').fail(err => showToast(err.responseJSON.message, 'error'));
+        }
+    });
+
+    // 휴지통 비우기
+    $('#empty-trash-btn').on('click', function() {
+        if (prompt("'휴지통 비우기'를 입력하시면 모든 항목이 영구 삭제됩니다.") === '휴지통 비우기') {
+            $.post('/api/empty_trash', function(res) {
+                showToast(res.message, 'success');
+                loadTrashList(1);
+            }).fail(err => showToast(err.responseJSON.message, 'error'));
+        }
+    });
+
+    $('#check_all').click(function() { $('.row_chk').prop('checked', $(this).is(':checked')); });
+    
+    loadTrashList(1);
+});
+</script>
+{% endblock %}

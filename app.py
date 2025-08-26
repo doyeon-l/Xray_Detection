@@ -1,9 +1,13 @@
+# ⭐ eventlet.monkey_patch()를 최상단에 위치시켜야 한다.
+import eventlet
+eventlet.monkey_patch()
+
 import sys
-from flask import Flask, render_template, request, jsonify, make_response, redirect, url_for, flash, session
+from flask import Flask, render_template, jsonify, make_response, redirect, url_for, flash, request
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import pymysql
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import csv
 import io
 import cv2
@@ -29,8 +33,15 @@ from pytorch_grad_cam.grad_cam import GradCAM
 import ttach as tta
 
 import psutil # 프로세스 제어
+from flask_socketio import SocketIO  # 웹 소켓
+
+# 취소 요청을 저장할 전역 딕셔너리
+# { '세션ID': True } 형태로 저장됩니다.
+CANCELLATION_REQUESTS = {}
 
 app = Flask(__name__)
+socketio = SocketIO(app)  # SocketIO 초기화
+
 uploadPath = './static/upload'
 modelPath = './model'
 xaiResultPath = './static/xai_results'  # XAI 결과 저장 폴더
@@ -39,7 +50,7 @@ xaiResultPath = './static/xai_results'  # XAI 결과 저장 폴더
 if not os.path.exists(xaiResultPath):
     os.makedirs(xaiResultPath)
 
-app.secret_key = 'your-secret-key-for-fubao-project'
+app.secret_key = 'fubao123'  # 웹 소켓 사용시 필수
 app.config['ADMIN_SECRET_CODE'] = 'admin123'
 
 login_manager = LoginManager()
@@ -125,87 +136,58 @@ def predict_with_classifier(model, input_tensor):
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
 
-# 업로드 및 추론 라우트
-@app.route('/upload', methods=['POST'])
-@login_required
-def upload_files():
-    std_date = request.form.get('std_date')
-    model_gb = request.form.get('model_gb', 'S')  # 'S' 또는 'U'
-    files = request.files.getlist('files')
-    results = []
+def _process_files_background_task(files_data, std_date, model_gb, sid):
+    """ AI 분석을 수행하고, 취소 요청을 확인하며, 웹소켓으로 진행률을 전송하는 백그라운드 작업 """
+    total_files = len(files_data)
+    try:
+        for i, file_info in enumerate(files_data):
+            # 1. 매 작업 시작 전, 취소 요청이 있었는지 확인
+            if CANCELLATION_REQUESTS.get(sid):
+                break  # 취소 요청이 있으면 루프를 중단
+            
+            org_image_name = file_info['name']
+            filepath = file_info['path']
 
-    if not std_date or not files:
-        return jsonify({'status': 'error', 'message': '기준일과 파일이 필요합니다.'}), 400
-
-    for file in files:
-        if file and allowed_file(file.filename):
-            org_image_name = file.filename
-            filename = datetime.now().strftime("%Y%m%d_%H%M%S_") + str(uuid.uuid4())[:8] + '.jpg'
-            filepath = os.path.join(uploadPath, filename)
-            file.save(filepath)
-
+            # 2. 현재 처리 중인 파일 정보와 진행률을 웹소켓으로 전송
+            socketio.emit('upload_progress', {
+                'status': 'processing', 'current': i + 1, 'total': total_files,
+                'filename': org_image_name
+            }, to=sid)
+            
+            # 3. AI 분석 및 DB 저장
             img_pil = Image.open(filepath).convert('RGB')
-
             initial_prediction, yolo_class, effnet_class = 'UNKNOWN', '0', 'UNKNOWN'
             score, anomaly_score = 0.0, None
 
             if model_gb == 'S':
-                # YOLO 객체 탐지 모델의 결과 처리 로직으로 변경
                 yolo_results = yolo_model.predict(source=filepath, verbose=False)
-
-                # 탐지된 객체(Box)의 개수 확인
                 num_detections = len(yolo_results[0].boxes)
-
-                # 신뢰도 임계값 변수 추가
-                confidence_threshold = 0.5  # 50% 신뢰도
-
-                # 터미널(콘솔)에서 탐지 결과 확인
-                print(f"--- [Debug] Image: {org_image_name} ---")
-                print(f"Detections found: {num_detections}")
-                if num_detections > 0:
-                    top_confidence = yolo_results[0].boxes.conf[0].item()
-                    print(f"Top detection confidence: {top_confidence:.4f}")
-                print("-------------------------------------------")
-
-                # 탐지된 객체가 있고, 그 신뢰도가 임계값보다 높은 경우에만 BAD로 판정
+                confidence_threshold = 0.5
                 if num_detections > 0 and yolo_results[0].boxes.conf[0].item() > confidence_threshold:
                     initial_prediction = "BAD"
                     yolo_class = '0'
                     score = yolo_results[0].boxes.conf[0].item()
                 else:
-                    # 탐지된 것이 없거나, 신뢰도가 너무 낮으면 GOOD으로 판정
                     initial_prediction = "GOOD"
                     yolo_class = '1'
-                    # 점수는 탐지 결과에 따라 다르게 설정 (없으면 1.0, 낮으면 해당 점수)
                     score = yolo_results[0].boxes.conf[0].item() if num_detections > 0 else 1.0
-
                 effnet_class = initial_prediction
-
             elif model_gb == 'U':
                 transform = get_transform(size=224)
                 input_tensor = transform(img_pil).unsqueeze(0).to(device)
                 with torch.no_grad():
                     reconstructed = autoencoder_model(input_tensor)
                     reconstruction_error = nn.mse_loss(reconstructed, input_tensor).item()
-
                 anomaly_score = reconstruction_error
-                # 이상 점수 임계값은 모델 성능에 따라 조정이 필요할 수 있다.
                 threshold = 0.6
                 initial_prediction = "GOOD" if anomaly_score < threshold else "BAD"
                 yolo_class = '1' if initial_prediction == 'GOOD' else '0'
                 effnet_class = initial_prediction
-                # 점수는 (1 - 이상 점수)로 변환하여 0~1 사이 값으로 표시
                 score = max(0.0, 1.0 - anomaly_score)
-
-                # 터미널(콘솔)에서 비지도학습 탐지 결과 확인
-                print(f"--- [Debug Unsupervised] Image: {org_image_name} ---")
-                print(f"Anomaly Score (Reconstruction Error): {anomaly_score:.4f}")
-                print(f"Threshold: {threshold}")
-                print(f"Final Prediction: {initial_prediction}")
-                print("----------------------------------------------------")
 
             conn = get_db_connection()
             with conn.cursor() as cursor:
+                filename = os.path.basename(filepath)
                 cursor.execute("""
                     INSERT INTO classified_objects
                         (std_date, model_gb, image_path, image_name, org_image_name, yolo_class, effnet_class, score, anomaly_score, initial_prediction)
@@ -214,9 +196,65 @@ def upload_files():
                 conn.commit()
             conn.close()
 
-            results.append({'filename': filename, 'effnet_class': effnet_class})
+            eventlet.sleep(0.05) # 서버 부하 감소를 위한 짧은 대기
 
-    return jsonify({'status': 'success', 'results': results})
+        # for 루프가 완전히 끝난 후에, 여기서 단 한번만 최종 결과를 보낸다.
+        if CANCELLATION_REQUESTS.get(sid):
+            socketio.emit('upload_canceled', {'status': 'canceled', 'message': f'사용자에 의해 작업이 취소되었습니다.'}, to=sid)
+        else:
+            socketio.emit('upload_complete', {'status': 'success', 'message': f'{total_files}개 파일 분석 완료!'}, to=sid)
+
+    except Exception as e:
+        print(f"백그라운드 작업 중 오류 발생: {e}")
+        socketio.emit('upload_complete', {'status': 'error', 'message': f'서버 처리 중 오류가 발생했습니다: {e}'}, to=sid)
+    finally:
+        if sid in CANCELLATION_REQUESTS:
+            del CANCELLATION_REQUESTS[sid]
+
+# 웹소켓을 통한 업로드 취소 이벤트 핸들러
+@socketio.on('cancel_upload')
+def handle_cancel_upload():
+    # 이 이벤트를 보낸 클라이언트의 고유 ID (sid)를 키로 사용하여 취소 요청을 기록
+    sid = request.sid
+    print(f"클라이언트 [{sid}] 로부터 업로드 취소 요청을 받았습니다.")
+    CANCELLATION_REQUESTS[sid] = True
+
+@app.route('/upload', methods=['POST'])
+@login_required
+def upload_files():
+    std_date = request.form.get('std_date')
+    model_gb = request.form.get('model_gb', 'S')
+    files = request.files.getlist('files')
+    
+    if not std_date or not files:
+        return jsonify({'status': 'error', 'message': '기준일과 파일이 필요합니다.'}), 400
+
+    # 1. 먼저 모든 파일을 서버에 저장하고, 처리할 파일 목록을 만든다.
+    files_to_process = []
+    for file in files:
+        if file and allowed_file(file.filename):
+            org_image_name = file.filename
+            filename = datetime.now().strftime("%Y%m%d_%H%M%S_") + str(uuid.uuid4())[:8] + '.jpg'
+            filepath = os.path.join(uploadPath, filename)
+            file.save(filepath)
+            files_to_process.append({'name': org_image_name, 'path': filepath})
+
+    # 2. 요청을 보낸 클라이언트의 고유 ID (sid)를 가져온다.
+    sid = request.args.get('sid')  # sid를 flask_request에서 가져오도록 변경
+    if not sid:
+        return jsonify({'status': 'error', 'message': '웹소켓 세션 ID가 필요합니다.'}), 400
+
+    # 3. 시간이 오래 걸리는 AI 분석 작업을 백그라운드에서 실행하도록 넘긴다.
+    socketio.start_background_task(
+        _process_files_background_task, 
+        files_data=files_to_process, 
+        std_date=std_date, 
+        model_gb=model_gb, 
+        sid=sid
+    )
+    
+    # 4. "파일 수신은 끝났고, 이제부터 백그라운드 처리를 시작할게" 라는 의미로 즉시 응답한다.
+    return jsonify({'status': 'processing_started'})
 
 # XAI (Grad-CAM) 생성 API
 @app.route('/api/grad_cam/<int:item_id>', methods=['GET'])
@@ -480,7 +518,7 @@ def api_list():
     allowed_sort_columns = ['id', 'std_date', 'org_image_name', 'yolo_class', 'created_at', 'anomaly_score']
     order_clause = f" ORDER BY {sort_by} {sort_order.upper()}" if sort_by in allowed_sort_columns and sort_order.upper() in ['ASC', 'DESC'] else " ORDER BY id DESC"
         
-    data_query = "SELECT id, std_date, model_gb, image_path, image_name, org_image_name, yolo_class, effnet_class, score, anomaly_score, DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at, note, is_reclassified, modified_by, IFNULL(DATE_FORMAT(modified_at, '%%Y-%%m-%%d %%H:%%i:%%s'), '') AS modified_at " + base_query + order_clause + " LIMIT %s OFFSET %s"
+    data_query = "SELECT id, std_date, model_gb, image_path, image_name, org_image_name, yolo_class, effnet_class, score, anomaly_score, DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at, note, is_reclassified, modified_by, IFNULL(DATE_FORMAT(modified_at, '%%Y-%%m-%%d %%H:%%i:%%s'), '') AS modified_at, xai_image_path " + base_query + order_clause + " LIMIT %s OFFSET %s"
     
     conn = get_db_connection()
     with conn.cursor() as cursor:
@@ -494,49 +532,82 @@ def api_list():
     return jsonify({'total': total_count, 'data': result_data})
 
 @app.route('/api/export', methods=['GET'])
+@login_required
 def export_csv():
-    # api_list와 동일한 로직으로 데이터를 가져옴.
+    # --- 1. 프론트엔드에서 보낸 모든 파라미터 받기 ---
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
+    model_gb = request.args.get('model_gb')
     yolo_class = request.args.get('yolo_class')
-    search_term = request.args.get('search_term')
-    sort_by = request.args.get('sort_by', 'id')
-    sort_order = request.args.get('sort_order', 'DESC')
-
-    query = "SELECT id, std_date, org_image_name, IF(yolo_class='1', 'GOOD', 'BAD') as status, created_at, note, IF(is_reclassified=1, 'Yes', 'No') as reclassified FROM classified_objects WHERE del_yn = 'N'"
-    params = []
-    if from_date: query += " AND std_date >= %s"; params.append(from_date)
-    if to_date: query += " AND std_date <= %s"; params.append(to_date)
-    if yolo_class in ('0', '1'): query += " AND yolo_class = %s"; params.append(yolo_class)
-    if search_term: query += " AND org_image_name LIKE %s"; params.append(f"%{search_term}%")
+    is_reclassified = request.args.get('is_reclassified')
     
-    allowed_sort_columns = ['id', 'std_date', 'org_image_name', 'yolo_class', 'created_at']
-    if sort_by in allowed_sort_columns and sort_order.upper() in ['ASC', 'DESC']:
-        query += f" ORDER BY {sort_by} {sort_order.upper()}"
-    else:
-        query += " ORDER BY id DESC"
+    # 포함할 컬럼 정보 받기
+    include_score = request.args.get('include_score') == 'true'
+    include_note = request.args.get('include_note') == 'true'
+    include_history = request.args.get('include_history') == 'true'
+
+    include_xai_path = request.args.get('include_xai_path') == 'true'  # XAI 경로 포함 여부
+
+    # --- 2. 동적 쿼리 및 헤더 생성 ---
+    select_clauses = [
+        'id', 'std_date', 'org_image_name', 
+        "IF(model_gb='S', '지도', '비지도') as model_type",
+        "IF(yolo_class='1', 'GOOD', 'BAD') as status"
+    ]
+    headers = ['ID', '기준일', '원본 파일명', '모델', '판정']
+    
+    if include_score:
+        # 지도학습의 'score'는 '신뢰도 점수'로, 비지도학습의 'anomaly_score'는 '이상 점수'로 명확히 분리
+        select_clauses.append("CASE WHEN model_gb = 'S' THEN score ELSE NULL END as confidence_score")
+        select_clauses.append("CASE WHEN model_gb = 'U' THEN anomaly_score ELSE NULL END as anomaly_score_val")
+        headers.extend(['신뢰도 점수(지도)', '이상 점수(비지도)'])
+    if include_note:
+        select_clauses.append('note')
+        headers.append('메모')
+    if include_history:
+        select_clauses.extend(['modified_by', "DATE_FORMAT(modified_at, '%%Y-%%m-%%d %%H:%%i:%%s') as modified_at_formatted"])
+        headers.extend(['수정자', '수정일시'])
+    if include_xai_path:
+        # IFNULL 함수를 사용해 xai_image_path가 NULL이면 지정된 텍스트를, 아니면 원래 경로를 반환한다.
+        select_clauses.append("IFNULL(xai_image_path, '생성되지 않음') as xai_path_status")
+        headers.append('XAI 이미지 경로')
+
+    # --- 3. 동적 WHERE 조건 생성 ---
+    where_conditions = ["del_yn = 'N'"]
+    params = []
+    
+    if from_date and to_date:
+        where_conditions.append("std_date BETWEEN %s AND %s")
+        params.extend([from_date, to_date])
+    if model_gb in ('S', 'U'):
+        where_conditions.append("model_gb = %s")
+        params.append(model_gb)
+    if yolo_class in ('0', '1'):
+        where_conditions.append("yolo_class = %s")
+        params.append(yolo_class)
+    if is_reclassified in ('0', '1'):
+        where_conditions.append("is_reclassified = %s")
+        params.append(is_reclassified)
+    
+    # --- 4. 최종 쿼리 조합 및 실행 ---
+    query = f"SELECT {', '.join(select_clauses)} FROM classified_objects WHERE {' AND '.join(where_conditions)} ORDER BY id DESC"
     
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute(query, params)
+        cursor.execute(query, tuple(params))
         data = cursor.fetchall()
     conn.close()
 
-    # CSV 파일 생성
+    # --- 5. CSV 파일 생성 및 반환 (기존과 유사) ---
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['ID', '검출 기준일', '파일명', '상태', '업로드 일시', '메모', '재분류 여부'])
+    writer.writerow(headers)
     for row in data:
-        writer.writerow([row['id'], row['std_date'], row['org_image_name'], row['status'], row['created_at'], row['note'], row['reclassified']])
+        writer.writerow(row.values())
     
-    output.seek(0)
-
-    # 문자열을 'utf-8-sig'로 인코딩하여 바이트로 만든다.
-    # 이렇게 하면 파일 시작 부분에 BOM이 추가되어 Excel이 한글을 올바르게 인식한다.
     csv_data = output.getvalue().encode('utf-8-sig')
-
     response = make_response(csv_data)
-    response.headers["Content-Disposition"] = f"attachment; filename=export_{datetime.now().strftime('%Y%m%d')}.csv"
+    response.headers["Content-Disposition"] = f"attachment; filename=export_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
     response.headers["Content-type"] = "text/csv; charset=utf-8-sig"
     return response
 
@@ -619,6 +690,44 @@ def api_reclassify_batch():
         conn.close()
 
     return jsonify({'status': 'success'})
+
+# 기간별 일괄 판정 전환 API
+@app.route('/api/reclassify_by_period', methods=['POST'])
+@login_required
+def api_reclassify_by_period():
+    data = request.json
+    from_date = data.get('from_date')
+    to_date = data.get('to_date')
+    from_class = data.get('from_class') # '0' or '1'
+    to_class = data.get('to_class')     # '0' or '1'
+    model_gb = data.get('model_gb')     # 'S' or 'U'
+    
+    if not all([from_date, to_date, from_class, to_class, model_gb]):
+        return jsonify({'status': 'error', 'message': '모든 파라미터가 필요합니다.'}), 400
+
+    modifier = current_user.username
+    to_effnet_class = 'GOOD' if to_class == '1' else 'BAD'
+    
+    query = """
+        UPDATE classified_objects
+        SET yolo_class = %s, effnet_class = %s, is_reclassified = 1,
+            modified_at = NOW(), modified_by = %s
+        WHERE std_date BETWEEN %s AND %s
+        AND model_gb = %s
+        AND yolo_class = %s
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            updated_count = cursor.execute(query, (to_class, to_effnet_class, modifier, from_date, to_date, model_gb, from_class))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+    finally:
+        conn.close()
+
+    return jsonify({'status': 'success', 'message': f'총 {updated_count}개 항목의 판정을 변경했습니다.'})
 
 # 메모 업데이트 API
 @app.route('/api/update_note', methods=['POST'])
@@ -1176,6 +1285,78 @@ def delete_account():
     flash('회원 탈퇴가 완료되었습니다. 이용해주셔서 감사합니다.', 'logout_success')  # 로그아웃 성공과 동일한 카테고리 사용
     return redirect(url_for('index'))
 
+# ----- 휴지통 페이지 및 API -----
+@app.route('/trash')
+@login_required
+def trash_page():
+    # 이 페이지는 단순히 템플릿만 렌더링하고, 데이터는 API로 불러옴.
+    return render_template('trash.html')
+
+@app.route('/api/trash_list')
+@login_required
+def api_trash_list():
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('limit', 20))
+    offset = (page - 1) * per_page
+    
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) as total FROM classified_objects WHERE del_yn = 'Y'")
+        total_count = cursor.fetchone()['total']
+        
+        cursor.execute("""
+            SELECT id, org_image_name, image_path, model_gb, yolo_class, DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at 
+            FROM classified_objects WHERE del_yn = 'Y' 
+            ORDER BY id DESC LIMIT %s OFFSET %s
+        """, (per_page, offset))
+        trash_items = cursor.fetchall()
+    conn.close()
+    
+    return jsonify({'total': total_count, 'data': trash_items})
+
+@app.route('/api/restore', methods=['POST'])
+@login_required
+def api_restore():
+    ids = request.json.get('ids', [])
+    if not ids: return jsonify({'status': 'error', 'message': '복원할 항목이 없습니다.'}), 400
+    
+    query = "UPDATE classified_objects SET del_yn = 'N' WHERE id IN (%s)" % ','.join(['%s'] * len(ids))
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute(query, ids)
+    conn.commit()
+    conn.close()
+    
+    return jsonify({'status': 'success', 'message': f'{len(ids)}개 항목을 복원했습니다.'})
+
+@app.route('/api/delete_permanent', methods=['POST'])
+@login_required
+def api_delete_permanent():
+    ids = request.json.get('ids', [])
+    if not ids: return jsonify({'status': 'error', 'message': '삭제할 항목이 없습니다.'}), 400
+    
+    # (주의) 실제 DELETE 쿼리
+    query = "DELETE FROM classified_objects WHERE id IN (%s) AND del_yn = 'Y'" % ','.join(['%s'] * len(ids))
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        deleted_count = cursor.execute(query, ids)
+    conn.commit()
+    conn.close()
+
+    return jsonify({'status': 'success', 'message': f'{deleted_count}개 항목을 영구 삭제했습니다.'})
+
+@app.route('/api/empty_trash', methods=['POST'])
+@login_required
+def api_empty_trash():
+    query = "DELETE FROM classified_objects WHERE del_yn = 'Y'"
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        deleted_count = cursor.execute(query)
+    conn.commit()
+    conn.close()
+
+    return jsonify({'status': 'success', 'message': f'휴지통의 {deleted_count}개 항목을 모두 비웠습니다.'})
+
 # 기간별 데이터 삭제 API
 @app.route('/api/delete_by_date', methods=['POST'])
 @admin_required
@@ -1187,7 +1368,8 @@ def delete_by_date():
     if not from_date or not to_date:
         return jsonify({'status': 'error', 'message': '기간을 선택해주세요.'}), 400
 
-    query = "DELETE FROM classified_objects WHERE std_date BETWEEN %s AND %s"
+    # DELETE 대신, del_yn 플래그를 'Y'로 업데이트하는 쿼리로 변경
+    query = "UPDATE classified_objects SET del_yn = 'Y' WHERE std_date BETWEEN %s AND %s"
     
     conn = get_db_connection()
     with conn.cursor() as cursor:
@@ -1202,16 +1384,24 @@ def delete_by_date():
 @app.route('/api/delete_all', methods=['POST'])
 @admin_required
 def delete_all():
+    # TRUNCATE 대신, 모든 항목의 del_yn 플래그를 'Y'로 업데이트하는 쿼리로 변경
+    query = "UPDATE classified_objects SET del_yn = 'Y' WHERE del_yn = 'N'"
+
     conn = get_db_connection()
-    with conn.cursor() as cursor:
-        # TRUNCATE는 롤백이 불가능하지만, DELETE보다 훨씬 빠름.
-        cursor.execute("TRUNCATE TABLE classified_objects")
-    conn.commit()
-    conn.close()
+    deleted_count = 0
+    try:
+        with conn.cursor() as cursor:
+            deleted_count = cursor.execute(query)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+    finally:
+        conn.close()
     
-    flash('모든 검사 데이터가 영구적으로 삭제되었습니다.', 'success')
-    return jsonify({'status': 'success'})
+    return jsonify({'status': 'success', 'message': f'총 {deleted_count}개의 항목이 삭제 처리되었습니다.'})
 
 if __name__ == '__main__':
     # app.run(debug=True)
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # app.run(host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
