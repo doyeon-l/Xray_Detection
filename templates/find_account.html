@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}계정 찾기{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <h2>계정 찾기</h2>
+    <p>가입 시 사용한 이메일 주소를 입력해주세요.</p>
+
+    <hr class="form-divider">
+
+    <h3 class="form-section-title">아이디 찾기</h3>
+    <form method="POST" action="{{ url_for('find_account') }}" novalidate>
+        <div class="form-group">
+            <label for="email_find_id">이메일</label>
+            <input type="email" id="email_find_id" name="email" required>
+        </div>
+        <button type="submit" class="auth-btn">아이디 정보 받기</button>
+    </form>
+
+    <hr class="form-divider">
+
+    <h3 class="form-section-title">비밀번호 재설정</h3>
+    <p class="form-section-desc">재설정 링크를 이메일로 보내드립니다.</p>
+    <form method="POST" action="{{ url_for('reset_password_request') }}" novalidate>
+        <div class="form-group">
+            <label for="email_reset_pw">이메일</label>
+            <input type="email" id="email_reset_pw" name="email" required>
+        </div>
+        <button type="submit" class="auth-btn">재설정 링크 받기</button>
+    </form>
+
+    <div class="auth-switch">
+        <p><a href="{{ url_for('login') }}">로그인 페이지로 돌아가기</a></p>
+    </div>
+</div>
+{% endblock %}

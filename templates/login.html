@@ -22,7 +22,19 @@
     </form>
     <div class="auth-switch">
         <p>계정이 없으신가요? <a href="{{ url_for('register') }}">회원가입</a></p>
+        <!-- 🔴 [수정] 계정 찾기 링크 추가 -->
+        <p><a href="{{ url_for('find_account') }}">아이디/비밀번호를 잊으셨나요?</a></p>
     </div>
+
+    <!-- 🔴 [추가] 소셜 로그인 구분선 및 버튼 -->
+    <div style="display: flex; align-items: center; text-align: center; margin: 20px 0;">
+        <hr style="flex-grow: 1; border: none; border-top: 1px solid #eee;">
+        <span style="padding: 0 10px; color: #888; font-size: 0.9em;">OR</span>
+        <hr style="flex-grow: 1; border: none; border-top: 1px solid #eee;">
+    </div>
+    <a href="{{ url_for('login_google') }}" class="auth-btn" style="background-color: #DB4437; text-decoration:none; display:block; margin-bottom:10px;">
+        <i class="fab fa-google" style="margin-right: 8px;"></i> Google로 계속하기
+    </a>
 </div>
 
 <script>

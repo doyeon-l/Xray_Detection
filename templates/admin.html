@@ -4,6 +4,25 @@
 {% block content %}
 <div class="admin-container">
     <h2>회원 관리</h2>
+    <!-- 🔴 [추가] 고급 필터링 UI -->
+    <div class="controls" style="margin-bottom: 20px; justify-content: flex-start;">
+        <form method="GET" action="{{ url_for('admin_dashboard') }}" class="filter-group">
+            <span>가입일:</span>
+            <input type="date" name="from_date" value="{{ request.args.get('from_date', '') }}">
+            <span>~</span>
+            <input type="date" name="to_date" value="{{ request.args.get('to_date', '') }}">
+            
+            <span style="margin-left: 15px;">권한:</span>
+            <select name="is_admin">
+                <option value="">전체</option>
+                <option value="1" {% if request.args.get('is_admin') == '1' %}selected{% endif %}>관리자</option>
+                <option value="0" {% if request.args.get('is_admin') == '0' %}selected{% endif %}>일반 사용자</option>
+            </select>
+
+            <button type="submit" style="margin-left: 10px;">조회</button>
+            <a href="{{ url_for('admin_dashboard') }}" style="margin-left: 5px; color: #555; font-size: 0.9em;">필터 초기화</a>
+        </form>
+    </div>
     <p>총 {{ users|length }}명의 회원이 있습니다.</p>
 
     <table class="admin-table">

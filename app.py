@@ -35,6 +35,12 @@ import ttach as tta
 import psutil # 프로세스 제어
 from flask_socketio import SocketIO  # 웹 소켓
 
+# 🔴 라이브러리 추가
+from flask_mailing import Mail, Message
+import asyncio
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired
+from authlib.integrations.flask_client import OAuth
+
 # 취소 요청을 저장할 전역 딕셔너리
 # { '세션ID': True } 형태로 저장됩니다.
 CANCELLATION_REQUESTS = {}
@@ -53,6 +59,38 @@ if not os.path.exists(xaiResultPath):
 app.secret_key = 'fubao123'  # 웹 소켓 사용시 필수
 app.config['ADMIN_SECRET_CODE'] = 'admin123'
 
+# --- 🔴 [추가] Flask-Mailing 설정 ---
+# (주의: 아래 정보는 실제 Gmail ID와 앱 비밀번호로 변경해야 합니다.)
+app.config["MAIL_USERNAME"] = 'your_gmail_id@gmail.com'
+app.config["MAIL_PASSWORD"] = 'your_gmail_app_password'
+app.config["MAIL_PORT"] = 587
+app.config["MAIL_SERVER"] = 'smtp.gmail.com'
+app.config["MAIL_USE_TLS"] = True
+app.config["MAIL_USE_SSL"] = False
+app.config["MAIL_FROM"] = 'your_gmail_id@gmail.com'
+app.config["MAIL_FROM_NAME"] = 'FUBAO 알림'
+mail = Mail(app)
+s = URLSafeTimedSerializer(app.secret_key)
+# --- [추가 끝] ---
+
+# --- 🔴 [추가] Google OAuth 설정 ---
+# (주의: 아래 정보는 Google Cloud Console에서 발급받은 정보로 변경해야 합니다.)
+oauth = OAuth(app)
+google = oauth.register(
+    name='google',
+    client_id='YOUR_GOOGLE_CLIENT_ID',
+    client_secret='YOUR_GOOGLE_CLIENT_SECRET',
+    access_token_url='https://accounts.google.com/o/oauth2/token',
+    access_token_params=None,
+    authorize_url='https://accounts.google.com/o/oauth2/auth',
+    authorize_params=None,
+    api_base_url='https://www.googleapis.com/oauth2/v1/',
+    userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',
+    client_kwargs={'scope': 'openid email profile'},
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration'
+)
+# --- [추가 끝] ---
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -64,6 +102,33 @@ def admin_required(f):
             abort(403)
         return f(*args, **kwargs)
     return decorated_function
+
+async def send_notification_email_async(subject, recipients, body):
+    msg = Message(subject=subject, recipients=recipients, html=body)
+    await mail.send_message(msg)
+
+def send_notification_email(subject, recipients, body):
+    asyncio.run(send_notification_email_async(subject, recipients, body))
+
+def get_admin_emails():
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT email FROM users WHERE is_admin = 1")
+        admins = cursor.fetchall()
+    conn.close()
+    return [admin['email'] for admin in admins]
+
+def log_audit_action(action, target_type=None, target_id=None, details=None):
+    if not current_user.is_authenticated: return
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO audit_logs (user_id, user_name, action, target_type, target_id, details)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (current_user.id, current_user.name, action, target_type, target_id, details))
+    conn.commit()
+    conn.close()
+# --- [추가 끝] ---
 
 class User(UserMixin):
     def __init__(self, id, userid, password_hash, name, email, company, role, is_admin):
@@ -182,6 +247,24 @@ def _process_files_background_task(files_data, std_date, model_gb, sid):
                 threshold = 0.6
                 initial_prediction = "GOOD" if anomaly_score < threshold else "BAD"
                 yolo_class = '1' if initial_prediction == 'GOOD' else '0'
+
+                # --- 🔴 [수정] 이상 점수가 임계값을 넘으면 관리자에게 알림 ---
+                if anomaly_score >= threshold:
+                    admin_emails = get_admin_emails()
+                    if admin_emails:
+                        email_body = f"""
+                        <h3>비지도 학습 모델 이상 감지 알림</h3>
+                        <p>새로 업로드된 이미지에서 높은 이상 점수가 감지되었습니다.</p>
+                        <ul>
+                            <li><b>원본 파일명:</b> {org_image_name}</li>
+                            <li><b>이상 점수:</b> {anomaly_score:.4f} (임계값: {threshold})</li>
+                            <li><b>업로드 시간:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</li>
+                        </ul>
+                        <p>시스템에 접속하여 확인해주세요.</p>
+                        """
+                        send_notification_email("[X-Ray 감지 시스템] 높은 이상 점수 감지", admin_emails, email_body)
+                # --- [수정 끝] ---
+
                 effnet_class = initial_prediction
                 score = max(0.0, 1.0 - anomaly_score)
 
@@ -620,6 +703,9 @@ def api_delete():
     with conn.cursor() as cursor: cursor.execute(query, ids)
     conn.commit()
     conn.close()
+    # --- 🔴 [수정] 감사 로그 기록 ---
+    log_audit_action('MOVE_TO_TRASH', details=f'{len(ids)} items')
+    # --- [수정 끝] ---
     return jsonify({'status': 'success'})
 
 # 재분류 API
@@ -1112,12 +1198,37 @@ def profile():
 @app.route('/admin')
 @admin_required  # 관리자만 접근 가능
 def admin_dashboard():
+    # --- 🔴 [수정] 필터링 로직 추가 ---
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+    is_admin = request.args.get('is_admin')
+
+    query = "SELECT * FROM users"
+    conditions = []
+    params = []
+
+    if from_date:
+        conditions.append("DATE(created_at) >= %s")
+        params.append(from_date)
+    if to_date:
+        conditions.append("DATE(created_at) <= %s")
+        params.append(to_date)
+    if is_admin in ('0', '1'):
+        conditions.append("is_admin = %s")
+        params.append(is_admin)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    
+    query += " ORDER BY created_at DESC"
+
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
+        cursor.execute(query, tuple(params))
         users = cursor.fetchall()
     conn.close()
     return render_template('admin.html', users=users)
+    # --- [수정 끝] ---
 
 # 모델 관리 페이지 라우트
 @app.route('/admin/model')
@@ -1236,6 +1347,9 @@ def toggle_admin(user_id):
     conn.commit()
     conn.close()
     flash(f'사용자(ID: {user_id})를 관리자로 임명했습니다.', 'success')
+    # --- 🔴 [수정] 감사 로그 기록 ---
+    log_audit_action('PROMOTE_ADMIN', target_type='user', target_id=user_id)
+    # --- [수정 끝] ---
     return redirect(url_for('admin_dashboard'))
 
 # 회원 삭제 라우트
@@ -1262,6 +1376,9 @@ def delete_user(user_id):
     conn.commit()
     conn.close()
     flash(f'사용자(ID: {user_id})가 삭제되었습니다.', 'success')
+    # --- 🔴 [수정] 감사 로그 기록 ---
+    log_audit_action('DELETE_USER', target_type='user', target_id=user_id)
+    # --- [수정 끝] ---
     return redirect(url_for('admin_dashboard'))
 
 # 회원 탈퇴 처리
@@ -1400,6 +1517,191 @@ def delete_all():
         conn.close()
     
     return jsonify({'status': 'success', 'message': f'총 {deleted_count}개의 항목이 삭제 처리되었습니다.'})
+
+# --- 🔴 [추가] 1단계: 계정 찾기 및 비밀번호 재설정 ---
+@app.route('/find_account', methods=['GET', 'POST'])
+def find_account():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT userid FROM users WHERE email = %s", (email,))
+            user = cursor.fetchone()
+        conn.close()
+
+        if user:
+            send_notification_email(
+                "[X-Ray 감지 시스템] 아이디 찾기 결과",
+                [email],
+                f"<h3>요청하신 아이디는 <b>{user['userid']}</b> 입니다.</h3>"
+            )
+            flash('입력하신 이메일로 아이디 정보를 발송했습니다.', 'success')
+        else:
+            flash('해당 이메일로 가입된 계정을 찾을 수 없습니다.', 'error')
+        return redirect(url_for('find_account'))
+    return render_template('find_account.html')
+
+@app.route('/reset_password_request', methods=['POST'])
+def reset_password_request():
+    email = request.form.get('email')
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        user = cursor.fetchone()
+    conn.close()
+
+    if user:
+        token = s.dumps(email, salt='password-reset-salt')
+        reset_url = url_for('reset_password_token', token=token, _external=True)
+        send_notification_email(
+            "[X-Ray 감지 시스템] 비밀번호 재설정 요청",
+            [email],
+            f"<h3>비밀번호를 재설정하려면 아래 링크를 클릭하세요 (10분 유효):</h3><a href='{reset_url}'>{reset_url}</a>"
+        )
+        flash('비밀번호 재설정 링크를 이메일로 발송했습니다.', 'success')
+    else:
+        flash('해당 이메일로 가입된 계정을 찾을 수 없습니다.', 'error')
+    return redirect(url_for('find_account'))
+
+@app.route('/reset_password/<token>', methods=['GET', 'POST'])
+def reset_password_token(token):
+    try:
+        email = s.loads(token, salt='password-reset-salt', max_age=600) # 10분 유효
+    except SignatureExpired:
+        flash('비밀번호 재설정 링크가 만료되었습니다. 다시 요청해주세요.', 'error')
+        return redirect(url_for('find_account'))
+    except Exception:
+        flash('잘못된 링크입니다.', 'error')
+        return redirect(url_for('find_account'))
+
+    if request.method == 'POST':
+        password = request.form['password']
+        password_confirm = request.form['password_confirm']
+        if password != password_confirm:
+            flash('비밀번호가 일치하지 않습니다.', 'error')
+            return render_template('reset_password.html', token=token)
+        
+        hashed_password = generate_password_hash(password)
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET password_hash = %s WHERE email = %s", (hashed_password, email))
+        conn.commit()
+        conn.close()
+        flash('비밀번호가 성공적으로 재설정되었습니다. 새 비밀번호로 로그인하세요.', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('reset_password.html', token=token)
+# --- [추가 끝: 계정 찾기] ---
+
+
+# --- 🔴 [추가] 2단계: Google 소셜 로그인 ---
+@app.route('/login/google')
+def login_google():
+    redirect_uri = url_for('authorize_google', _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+@app.route('/login/google/callback')
+def authorize_google():
+    token = google.authorize_access_token()
+    user_info = google.get('userinfo').json()
+    email = user_info['email']
+    name = user_info['name']
+
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+        user_data = cursor.fetchone()
+        
+        if user_data:
+            user_obj = load_user(user_data['id'])
+            login_user(user_obj)
+            flash('Google 계정으로 로그인되었습니다.', 'login_success')
+        else:
+            temp_password = generate_password_hash(os.urandom(16))
+            base_userid = email.split('@')[0]
+            userid = base_userid
+            counter = 1
+            while True:
+                cursor.execute("SELECT id FROM users WHERE userid = %s", (userid,))
+                if not cursor.fetchone():
+                    break
+                userid = f"{base_userid}{counter}"
+                counter += 1
+
+            cursor.execute("""
+                INSERT INTO users (userid, password_hash, name, email, is_admin)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (userid, temp_password, name, email, False))
+            conn.commit()
+            
+            new_user_id = cursor.lastrowid
+            user_obj = load_user(new_user_id)
+            login_user(user_obj)
+            flash('Google 계정으로 자동 가입 및 로그인되었습니다.', 'login_success')
+    conn.close()
+    return redirect(url_for('index'))
+# --- [추가 끝: Google 로그인] ---
+
+
+# --- 🔴 [추가] 3단계: AI 기능 고도화 (API 기반) ---
+@app.route('/api/auto_label/<int:item_id>')
+@login_required
+def auto_label(item_id):
+    # 이 기능은 실제 구현 시 복잡한 이미지 처리 로직이 필요합니다.
+    # 여기서는 기능의 존재를 보여주기 위한 예시(placeholder)로,
+    # 이미지 중앙에 임의의 박스를 반환합니다.
+    suggested_box = {'x': 100, 'y': 120, 'width': 50, 'height': 60}
+    return jsonify({'status': 'success', 'box': suggested_box})
+
+@app.route('/stats/model_performance_by_version')
+@login_required
+def model_performance_by_version():
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT version, performance 
+            FROM retraining_jobs 
+            WHERE status = 'COMPLETED' AND version IS NOT NULL
+            ORDER BY id ASC
+        """)
+        data = cursor.fetchall()
+    conn.close()
+    return jsonify(data)
+# --- [추가 끝: AI 기능 API] ---
+
+
+# --- 🔴 [추가] 4단계: 감사 로그 ---
+@app.route('/admin/audit_logs')
+@admin_required
+def audit_logs():
+    page = int(request.args.get('page', 1))
+    per_page = 20
+    offset = (page - 1) * per_page
+
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) as total FROM audit_logs")
+        total = cursor.fetchone()['total']
+        
+        cursor.execute("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT %s OFFSET %s", (per_page, offset))
+        logs = cursor.fetchall()
+    conn.close()
+
+    return render_template('audit_logs.html', logs=logs, page=page, per_page=per_page, total=total)
+# --- [추가 끝: 감사 로그] ---
+
+
+# --- 🔴 [추가] train.py에서 이메일 발송을 위한 API ---
+@app.route('/api/admin_emails')
+def api_get_admin_emails():
+    return jsonify({'emails': get_admin_emails()})
+
+@app.route('/api/send_email', methods=['POST'])
+def api_send_email():
+    data = request.json
+    send_notification_email(data['subject'], data['recipients'], data['body'])
+    return jsonify({'status': 'success'})
+# --- [추가 끝] ---
 
 if __name__ == '__main__':
     # app.run(debug=True)

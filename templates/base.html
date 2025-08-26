@@ -62,10 +62,11 @@
                 {{ current_user.name }}님
               </a>
               <ul class="dropdown-menu">
-                <!-- 관리자일 경우 '회원 관리', '모델 관리' 메뉴 추가 -->
+                <!-- 관리자일 경우 '회원 관리', '모델 관리', '감사 로그' 메뉴 추가 -->
                 {% if current_user.is_admin %}
                   <li><a href="{{ url_for('admin_dashboard') }}">회원 관리</a></li>
                   <li><a href="{{ url_for('model_management') }}">모델 관리</a></li>
+                  <li><a href="{{ url_for('audit_logs') }}">감사 로그</a></li>
                 {% endif %}
                 <li><a href="{{ url_for('profile') }}">계정 관리</a></li>
                 <li><a href="{{ url_for('logout') }}">로그아웃</a></li>
