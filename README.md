@@ -79,3 +79,9 @@ CREATE TABLE IF NOT EXISTS `retraining_jobs` (
 
 -- 테이블 생성 확인
 DESC retraining_jobs;
+
+--------------------------------------------------------------------------------------------------------------------------------------
+
+## 02_alter_tables.sql
+ALTER TABLE retraining_jobs ADD COLUMN version VARCHAR(20) NULL;
+ALTER TABLE retraining_jobs ADD COLUMN performance FLOAT NULL;
