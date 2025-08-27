@@ -129,7 +129,7 @@ def log_audit_action(action, target_type=None, target_id=None, details=None):
 # --- [추가 끝] ---
 
 class User(UserMixin):
-    def __init__(self, id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete):
+    def __init__(self, id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete, auth_provider='local'):
         self.id = id
         self.username = userid
         self.password_hash = password_hash
@@ -139,6 +139,7 @@ class User(UserMixin):
         self.role = role
         self.is_admin = is_admin
         self.is_onboarding_complete = is_onboarding_complete
+        self.auth_provider = auth_provider
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -150,14 +151,15 @@ class User(UserMixin):
 def load_user(user_id):
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute("SELECT id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete FROM users WHERE id = %s", (user_id,))
+        cursor.execute("SELECT id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete, auth_provider FROM users WHERE id = %s", (user_id,))
         user_data = cursor.fetchone()
     conn.close()
     if user_data:
         return User(id=user_data['id'], userid=user_data['userid'], password_hash=user_data['password_hash'], 
             name=user_data['name'], email=user_data['email'], 
             company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'],
-            is_onboarding_complete=user_data['is_onboarding_complete'])
+            is_onboarding_complete=user_data['is_onboarding_complete'],
+            auth_provider=user_data.get('auth_provider', 'local'))
     return None
 
 # 모델 로드
@@ -1107,14 +1109,16 @@ def login():
 
         conn = get_db_connection()
         with conn.cursor() as cursor:
-            cursor.execute("SELECT id, userid, password_hash, name, email, company, role, is_admin FROM users WHERE userid = %s", (userid,))
+            cursor.execute("SELECT id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete, auth_provider FROM users WHERE userid = %s", (userid,))
             user_data = cursor.fetchone()
         conn.close()
 
         if user_data and check_password_hash(user_data['password_hash'], password):
             user = User(id=user_data['id'], userid=user_data['userid'], password_hash=user_data['password_hash'],
                         name=user_data['name'], email=user_data['email'],
-                        company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'])
+                        company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'],
+                        is_onboarding_complete=user_data['is_onboarding_complete'],
+                        auth_provider=user_data.get('auth_provider', 'local'))
             login_user(user)
             flash('로그인 되었습니다.', 'login_success')
             return redirect(url_for('index'))
@@ -1205,7 +1209,7 @@ def profile():
         return redirect(url_for('profile'))
 
     # GET 요청 시, user_data를 None 또는 빈 딕셔너리로 전달
-    return render_template('profile.html', user_data={})
+    return render_template('profile.html', user_data={}, auth_provider=current_user.auth_provider)
 
 # 관리자 페이지: 회원 목록
 @app.route('/admin')
@@ -1538,19 +1542,24 @@ def find_account():
         email = request.form.get('email')
         conn = get_db_connection()
         with conn.cursor() as cursor:
-            cursor.execute("SELECT userid FROM users WHERE email = %s", (email,))
+            cursor.execute("SELECT userid, auth_provider FROM users WHERE email = %s", (email,))
             user = cursor.fetchone()
         conn.close()
 
         if user:
+            # Google 계정인 경우 기능 차단
+            if user['auth_provider'] == 'google':
+                flash('Google 계정은 이 기능을 사용할 수 없습니다.', 'find_id_error')
+                return redirect(url_for('find_account'))
+            
             send_notification_email(
                 "[X-Ray 감지 시스템] 아이디 찾기 결과",
                 [email],
                 f"<h3>요청하신 아이디는 <b>{user['userid']}</b> 입니다.</h3>"
             )
-            flash('입력하신 이메일로 아이디 정보를 발송했습니다.', 'success')
+            flash('입력하신 이메일로 아이디 정보를 발송했습니다.', 'find_id_success')
         else:
-            flash('해당 이메일로 가입된 계정을 찾을 수 없습니다.', 'error')
+            flash('해당 이메일로 가입된 계정을 찾을 수 없습니다.', 'find_id_error')
         return redirect(url_for('find_account'))
     return render_template('find_account.html')
 
@@ -1559,11 +1568,16 @@ def reset_password_request():
     email = request.form.get('email')
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        cursor.execute("SELECT id, auth_provider FROM users WHERE email = %s", (email,))
         user = cursor.fetchone()
     conn.close()
 
     if user:
+        # Google 계정인 경우 기능 차단
+        if user['auth_provider'] == 'google':
+            flash('Google 계정은 비밀번호 재설정을 지원하지 않습니다. Google을 통해 직접 변경해주세요.', 'reset_pw_error')
+            return redirect(url_for('find_account'))
+        
         token = s.dumps(email, salt='password-reset-salt')
         reset_url = url_for('reset_password_token', token=token, _external=True)
         send_notification_email(
@@ -1571,9 +1585,9 @@ def reset_password_request():
             [email],
             f"<h3>비밀번호를 재설정하려면 아래 링크를 클릭하세요 (10분 유효):</h3><a href='{reset_url}'>{reset_url}</a>"
         )
-        flash('비밀번호 재설정 링크를 이메일로 발송했습니다.', 'success')
+        flash('비밀번호 재설정 링크를 이메일로 발송했습니다.', 'reset_pw_success')
     else:
-        flash('해당 이메일로 가입된 계정을 찾을 수 없습니다.', 'error')
+        flash('해당 이메일로 가입된 계정을 찾을 수 없습니다.', 'reset_pw_error')
     return redirect(url_for('find_account'))
 
 @app.route('/reset_password/<token>', methods=['GET', 'POST'])
@@ -1594,17 +1608,57 @@ def reset_password_token(token):
             flash('비밀번호가 일치하지 않습니다.', 'error')
             return render_template('reset_password.html', token=token)
         
+        # 새 비밀번호가 현재 비밀번호와 같은지 서버에서 최종 확인
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT password_hash FROM users WHERE email = %s", (email,))
+            user = cursor.fetchone()
+            
+            if user and check_password_hash(user['password_hash'], password):
+                conn.close()
+                flash('새 비밀번호는 현재 비밀번호와 다르게 설정해야 합니다.', 'error')
+                return render_template('reset_password.html', token=token)
+        
         hashed_password = generate_password_hash(password)
         conn = get_db_connection()
         with conn.cursor() as cursor:
             cursor.execute("UPDATE users SET password_hash = %s WHERE email = %s", (hashed_password, email))
         conn.commit()
         conn.close()
-        flash('비밀번호가 성공적으로 재설정되었습니다. 새 비밀번호로 로그인하세요.', 'success')
+        flash('비밀번호가 성공적으로 재설정되었습니다. 새 비밀번호로 로그인하세요.', 'reset_pw_complete')
         return redirect(url_for('login'))
 
     return render_template('reset_password.html', token=token)
 
+# 비밀번호 재설정 시, 새 비밀번호가 현재와 다른지 실시간으로 확인하는 API
+@app.route('/api/check_new_password_is_different', methods=['POST'])
+def check_new_password_is_different():
+    data = request.get_json()
+    token = data.get('token')
+    new_password = data.get('new_password')
+
+    if not token or not new_password:
+        return jsonify({'is_different': False, 'message': '필수 정보 누락'}), 400
+
+    try:
+        # 토큰을 해독하여 이메일 정보를 얻음.
+        email = s.loads(token, salt='password-reset-salt', max_age=600)
+    except Exception:
+        # 유효하지 않은 토큰
+        return jsonify({'is_different': False, 'message': '유효하지 않은 요청입니다.'}), 401
+
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT password_hash FROM users WHERE email = %s", (email,))
+        user = cursor.fetchone()
+    conn.close()
+
+    # 사용자가 존재하고, 새 비밀번호가 현재 비밀번호와 같다면
+    if user and check_password_hash(user['password_hash'], new_password):
+        return jsonify({'is_different': False})
+    else:
+        # 사용자가 없거나, 비밀번호가 다르면 '다른 비밀번호'로 간주하여 통과
+        return jsonify({'is_different': True})
 
 # Google 소셜 로그인
 @app.route('/login/google')
@@ -1631,6 +1685,9 @@ def authorize_google():
         user_data = cursor.fetchone()
         
         if user_data:
+            # 이미 가입된 사용자가 구글로 로그인 시, auth_provider를 'google'로 업데이트
+            cursor.execute("UPDATE users SET auth_provider = 'google' WHERE id = %s", (user_data['id'],))
+            conn.commit()
             user_obj = load_user(user_data['id'])
             login_user(user_obj)
             flash('Google 계정으로 로그인되었습니다.', 'login_success')
@@ -1650,9 +1707,9 @@ def authorize_google():
                 counter += 1
 
             cursor.execute("""
-                INSERT INTO users (userid, password_hash, name, email, is_admin)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (userid, temp_password_hash, name, email, False))
+                INSERT INTO users (userid, password_hash, name, email, is_admin, auth_provider)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (userid, temp_password_hash, name, email, False, 'google'))
             conn.commit()
             
             new_user_id = cursor.lastrowid
