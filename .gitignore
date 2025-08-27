@@ -12,3 +12,9 @@ __pycache__/
 # IDE 설정 폴더 (VSCode, PyCharm 등)
 .vscode/
 .idea/
+
+# 업로드 폴더
+upload/
+
+# XAI 결과 폴더
+xai_results/
