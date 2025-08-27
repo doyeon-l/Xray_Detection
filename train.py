@@ -6,6 +6,7 @@ from datetime import datetime
 import argparse  # 인자 파싱을 위해 추가
 import sys       # stdout, stderr 리디렉션을 위해 추가
 import traceback # 예외 처리를 위해 추가
+import requests  # 🔴 API 호출을 위해 requests 라이브러리 import
 
 # --- 🔴 [추가] ---
 import requests
@@ -30,6 +31,33 @@ DATA_YAML_PATH = os.path.join(RETRAIN_DATASET_PATH, 'data.yaml')
 # DB 연결 및 업데이트 함수
 def get_db_connection():
     return pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, db=DB_NAME, charset='utf8mb4', autocommit=True)
+
+# 🔴 [추가 시작] 재학습 진행률을 Flask 서버로 전송하는 콜백 함수
+def on_epoch_end_callback(trainer):
+    """
+    YOLO 학습 시 매 에폭(epoch)이 끝날 때마다 호출되는 함수.
+    trainer 객체에는 현재 학습 상태에 대한 모든 정보가 들어있습니다.
+    """
+    try:
+        # trainer.epoch는 0부터 시작하므로 +1 해주고, trainer.epochs는 총 에폭 수
+        current_epoch = trainer.epoch + 1
+        total_epochs = trainer.epochs
+        progress_percent = int((current_epoch / total_epochs) * 100)
+        
+        # Flask 앱에 보낼 데이터 구성
+        progress_data = {
+            'job_id': job_id, # 전역 변수로 선언된 job_id 사용
+            'progress': progress_percent,
+            'message': f'Epoch {current_epoch}/{total_epochs} 완료'
+        }
+        
+        # Flask 서버의 API로 POST 요청 전송 (타임아웃 5초 설정)
+        requests.post('http://127.0.0.1:5000/api/update_retraining_progress', json=progress_data, timeout=5)
+
+    except Exception as e:
+        # 콜백 함수 내부의 오류가 전체 학습을 중단시키지 않도록 예외 처리
+        print(f"진행률 업데이트 콜백 오류: {e}")
+# --- [추가 끝] ---
 
 # DB 업데이트 함수가 자체적으로 연결을 관리하도록 변경
 def update_job_status(job_id, status, message=None, log_append=None, version=None, performance=None):
@@ -186,7 +214,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--job_id", required=True, type=int)
     args = parser.parse_args()
-    job_id = args.job_id
+    job_id = args.job_id  # job_id를 전역 변수로 설정하여 콜백 함수에서 사용
 
     # stdout과 stderr를 DatabaseLogger로 리디렉션
     sys.stdout = DatabaseLogger(job_id)
@@ -210,10 +238,15 @@ if __name__ == '__main__':
         # 4. YOLO 모델 학습 실행
         print("YOLO 모델 재학습 시작...\n")
         model = YOLO('model/best.pt')  # 기존 모델을 불러와서 fine-tuning
+        # 콜백 함수를 모델에 등록
+        model.add_callback("on_epoch_end", on_epoch_end_callback)
+
+        # epochs 변수화
+        TOTAL_EPOCHS = 50 
         results = model.train(
             data=DATA_YAML_PATH,
-            epochs=50,
-            imgsz=640,
+            epochs=TOTAL_EPOCHS,
+            imgsz=224,
             name=f'retrain_{datetime.now().strftime("%Y%m%d_%H%M")}'
         )
         

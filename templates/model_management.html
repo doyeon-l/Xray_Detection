@@ -12,6 +12,10 @@
     .job-history-table th, .job-history-table td { border: 1px solid #ddd; padding: 8px; text-align: center; font-size: 0.9em;}
     .job-history-table th { background-color: #f8f9fa; }
     .job-history-filters { margin-top: 20px; padding: 15px; background-color: #f1f3f5; border: 1px solid #dee2e6; border-radius: 5px; display: flex; gap: 10px; align-items: center; }
+
+    /* 🔴 [추가] 재학습 진행률 바 스타일 */
+    .progress-bar-container { width: 100%; background-color: #e0e0e0; border-radius: 5px; overflow: hidden; margin-top: 10px; }
+    #retraining-progress-bar { width: 0%; height: 20px; background-color: #007bff; text-align: center; line-height: 20px; color: white; border-radius: 5px; transition: width 0.5s ease-in-out; margin: 0; padding: 0;}
 </style>
 {% endblock %}
 
@@ -21,30 +25,51 @@
     <p>운영자가 재분류한 데이터를 기반으로 모델을 재학습하여 성능을 개선할 수 있습니다.</p>
     <hr class="form-divider" style="margin: 20px 0;">
 
-    <!-- 1. 재학습 실행 영역 -->
+    <!-- 1. 지도학습 재학습 영역 -->
     <div class="model-management-section">
         <h3>지도학습 모델 (YOLO) 재학습</h3>
         <p style="margin-bottom: 20px;">
-            <strong>현재 재학습에 반영될 재분류 이미지는 총 <span style="color: #007bff;">{{ reclassified_count }}</span>개 입니다.</strong>
+            '정상↔불량'으로 재분류된 모든 데이터를 사용하여 모델의 예측 정확도를 개선합니다.<br>
+            <strong>현재 재학습에 반영될 재분류 이미지는 총 <span id="supervised-count" style="color: #007bff;">{{ reclassified_count }}</span>개 입니다.</strong>
         </p>
-        <div id="retrain-controls">
-            <form action="{{ url_for('retrain_model') }}" method="POST" style="display: inline-block;" onsubmit="return confirm('모델 재학습을 시작하시겠습니까?');">
-                <button type="submit" id="retrain-btn" class="btn-promote" style="padding: 10px 20px; font-size: 1.1rem;">모델 재학습 시작</button>
+        <div id="retrain-controls-supervised">
+            <form action="{{ url_for('retrain_model') }}" method="POST" style="display: inline-block;">
+                <button type="submit" id="retrain-btn-supervised" class="btn-promote" style="padding: 10px 20px; font-size: 1.1rem;">지도학습 시작</button>
             </form>
         </div>
     </div>
     <hr class="form-divider" style="margin: 40px 0;">
 
-    <!-- 2. 현재 진행 중인 작업 표시 영역 (동적으로 표시/숨김) -->
+    <!-- 2. 비지도학습 재학습 영역 -->
+    <div class="model-management-section">
+        <h3>비지도학습 모델 (Autoencoder) 재학습</h3>
+        <p style="margin-bottom: 20px;">
+            AI가 '불량'으로 예측했으나 사용자가 '정상'으로 재분류한 데이터를 학습하여, 새로운 정상 제품의 기준을 업데이트합니다.<br>
+            <strong>현재 재학습에 반영될 '신규 정상' 이미지는 총 <span id="unsupervised-count" style="color: #28a745;">0</span>개 입니다.</strong>
+        </p>
+        <div id="retrain-controls-unsupervised">
+            <button id="retrain-btn-unsupervised" class="btn-promote" style="background-color: #28a745; padding: 10px 20px; font-size: 1.1rem;">비지도학습 시작</button>
+        </div>
+    </div>
+    <hr class="form-divider" style="margin: 40px 0;">
+
+    <!-- 3. 현재 진행 중인 작업 표시 영역 (동적으로 표시/숨김) -->
     <div id="live-status-container" class="retraining-status-section" style="display: none;">
         <h3>현재 진행 중인 작업</h3>
         <p><strong>상태:</strong> <span id="job-status" class="status-badge"></span></p>
         <p><strong>최종 결과:</strong> <span id="job-result"></span></p>
+
+        <!-- 진행률 바 UI -->
+        <p><strong>진행률:</strong> <span id="progress-message">대기 중...</span></p>
+        <div class="progress-bar-container">
+            <div id="retraining-progress-bar">0%</div>
+        </div>
+
         <p><strong>로그:</strong></p>
         <pre id="retraining-log"></pre>
     </div>
 
-    <!-- 3. 재학습 이력 목록 -->
+    <!-- 4. 재학습 이력 목록 -->
     <div class="job-history-section">
         <h3>재학습 이력</h3>
         <!-- 날짜 검색 필터 -->
@@ -88,11 +113,88 @@
 
 <script>
 $(document).ready(function() {
+    let socket; // 소켓 객체를 담을 변수
     let pollingInterval;
     // 이전 작업 상태를 기억하기 위한 변수
     let lastKnownStatus = null;
 
-    // ----- 1. 현재 진행 중인 작업 상태 폴링 -----
+    // ----- 1. 웹소켓 연결 및 이벤트 핸들러 설정 -----
+    function connectSocket() {
+        // 이미 연결되어 있다면 중복 연결 방지
+        if (socket && socket.connected) return;
+
+        socket = io();
+
+        // 재학습 진행률 업데이트 이벤트 수신
+        socket.on('retraining_progress', function(data) {
+            const progressBar = $('#retraining-progress-bar');
+            const progressMessage = $('#progress-message');
+
+            progressBar.css('width', data.progress + '%').text(data.progress + '%');
+            progressMessage.text(data.message);
+        });
+    }
+
+    function checkUnsupervisedCount() {
+    $.getJSON('/api/unsupervised_retrain_count', function(data) {
+        $('#unsupervised-count').text(data.count || 0);
+    });
+}
+
+    // ----- 2. 기존의 폴링 방식 상태 확인 함수 (페이지 첫 로드 시 사용) -----
+    function checkInitialStatus() {
+        $.getJSON('/api/retraining_status', function(job) {
+            const currentStatus = job.status;
+            const liveContainer = $('#live-status-container');
+            const retrainBtn = $('#retrain-btn');
+            const controlsContainer = $('#retrain-controls');
+
+            if ((currentStatus === 'RUNNING' || currentStatus === 'PENDING') && job.id) {
+                // 진행 중인 작업이 있으면 UI를 활성화하고 웹소켓 연결
+                liveContainer.show();
+                $('#job-status').text(currentStatus).removeClass().addClass('status-badge status-' + currentStatus.toLowerCase());
+                $('#retraining-log').text(job.progress_log || '').scrollTop($('#retraining-log')[0].scrollHeight);
+                
+                retrainBtn.prop('disabled', true).text('재학습 진행 중...');
+                if (controlsContainer.find('#stop-btn').length === 0) {
+                    controlsContainer.append('<button type="button" id="stop-btn" class="btn-delete" style="padding: 10px 20px; font-size: 1.1rem; margin-left: 10px;">강제 중지</button>');
+                }
+                connectSocket(); // 웹소켓 연결 시작
+            }
+
+            // 작업 완료/실패/취소 시의 처리는 기존 폴링 로직을 유지 (페이지 새로고침으로 UI를 최종 정리)
+            if ((job.status === 'COMPLETED' || job.status === 'FAILED' || job.status === 'CANCELED') && job.result_message) {
+                 // 이전에 실행되던 작업이 끝났음을 알리는 토스트 메시지 (선택적)
+                 // showToast(job.result_message, job.status.toLowerCase());
+                 // 필요하다면 여기서 location.reload()를 호출하여 이력 테이블을 갱신할 수 있음
+            }
+        });
+    }
+
+    // 지도학습 시작
+    $('#retrain-controls-supervised form').on('submit', function(e) {
+        if (!confirm('지도학습 모델 재학습을 시작하시겠습니까?')) {
+            e.preventDefault(); // 사용자가 취소하면 form 제출을 막음
+        }
+    });
+
+    // 비지도학습 시작
+    $('#retrain-btn-unsupervised').on('click', function() {
+        // 재학습할 데이터가 0개이면 경고창을 띄우고 중단
+        if (parseInt($('#unsupervised-count').text()) === 0) {
+            showToast('재학습할 데이터가 없습니다.', 'warning');
+            return;
+        }
+        if (confirm('비지도학습 모델 재학습을 시작하시겠습니까?')) {
+            // AJAX로 재학습 시작 API 호출
+            $.post("{{ url_for('retrain_autoencoder') }}", function(res) {
+                showToast(res.message, 'success');
+                window.location.reload(); // 성공하면 페이지를 새로고침하여 '진행 중' 상태를 표시
+            }).fail(err => showToast(err.responseJSON.message, 'error'));
+        }
+    });
+
+    // ----- 3. 현재 진행 중인 작업 상태 폴링 -----
     function checkRetrainingStatus() {
         $.getJSON('/api/retraining_status', function(job) {
             const currentStatus = job.status;
@@ -162,7 +264,7 @@ $(document).ready(function() {
         });
     }
 
-    // ----- 2. 재학습 이력 페이지네이션 렌더링 -----
+    // ----- 4. 재학습 이력 페이지네이션 렌더링 -----
     function renderPagination() {
         const totalItems = {{ total_jobs }};
         const itemsPerPage = {{ per_page }};
@@ -180,7 +282,7 @@ $(document).ready(function() {
         controls.html(paginationHtml);
     }
 
-    // ----- 3. 이벤트 핸들러 -----
+    // ----- 5. 이벤트 핸들러 -----
     // 강제 중지
     $(document).on('click', '#stop-btn', function() {
         if (confirm('정말로 현재 진행 중인 재학습을 중지하시겠습니까?')) {
@@ -230,8 +332,24 @@ $(document).ready(function() {
     });
 
     // ----- 4. 초기화 -----
-    checkRetrainingStatus();
+    checkRetrainingStatus();  // 페이지 로드 시 즉시 상태 확인
+
+    // 5초마다 로그 업데이트를 위한 폴링은 유지 (웹소켓은 진행률 바 전용)
+    setInterval(function() {
+        $.getJSON('/api/retraining_status', function(job) {
+            if (job.status === 'RUNNING' || job.status === 'PENDING') {
+                $('#retraining-log').text(job.progress_log || '').scrollTop($('#retraining-log')[0].scrollHeight);
+            } else {
+                // 작업이 끝나면 1.5초 후 페이지를 새로고침하여 이력 테이블을 최신화
+                if ($('#live-status-container').is(':visible')) {
+                    setTimeout(() => { window.location.reload(); }, 1500);
+                }
+            }
+        });
+    }, 5000);
+
     renderPagination();
+    checkUnsupervisedCount(); // 페이지 로드 시 비지도 데이터 개수 확인
 });
 </script>
 {% endblock %}

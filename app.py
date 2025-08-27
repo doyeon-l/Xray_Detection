@@ -466,7 +466,7 @@ def stats_performance_trend():
     data.reverse()
     return jsonify(data)
     
-# 모델 재학습 트리거 API
+# 지도 학습 모델 재학습 트리거 API
 @app.route('/admin/retrain_model', methods=['POST'])
 @admin_required
 def retrain_model():
@@ -498,6 +498,45 @@ def retrain_model():
             conn.close()
     return redirect(url_for('model_management'))
 
+# --- 🔴 [추가 시작] 비지도 학습 재학습 관련 API ---
+@app.route('/api/unsupervised_retrain_count')
+@admin_required
+def get_unsupervised_retrain_count():
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM classified_objects 
+            WHERE initial_prediction = 'BAD' AND yolo_class = '1' AND is_reclassified = 1 AND del_yn = 'N'
+        """)
+        count = cursor.fetchone()['count']
+    conn.close()
+    return jsonify({'count': count})
+
+@app.route('/admin/retrain_autoencoder', methods=['POST'])
+@admin_required
+def retrain_autoencoder():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id FROM retraining_jobs WHERE status = 'RUNNING' OR status = 'PENDING'")
+            if cursor.fetchone():
+                return jsonify({'status': 'error', 'message': '이미 다른 재학습 작업이 진행 중입니다.'}), 409
+
+            cursor.execute("INSERT INTO retraining_jobs (status, progress_log) VALUES ('PENDING', '비지도 학습 모델 재학습을 대기열에 추가했습니다...\\n')")
+            conn.commit()
+            job_id = cursor.lastrowid
+
+            process = subprocess.Popen([sys.executable, 'train_autoencoder.py', '--job_id', str(job_id)])
+            
+            cursor.execute("UPDATE retraining_jobs SET process_id = %s WHERE id = %s", (process.pid, job_id))
+            conn.commit()
+
+        return jsonify({'status': 'success', 'message': '비지도 학습 모델 재학습 프로세스가 시작되었습니다.'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+    finally:
+        if conn: conn.close()
+# --- [추가 끝] ---
 
 # 재학습 중지 API
 @app.route('/api/stop_retraining', methods=['POST'])
@@ -603,7 +642,7 @@ def api_list():
     allowed_sort_columns = ['id', 'std_date', 'org_image_name', 'yolo_class', 'created_at', 'anomaly_score']
     order_clause = f" ORDER BY {sort_by} {sort_order.upper()}" if sort_by in allowed_sort_columns and sort_order.upper() in ['ASC', 'DESC'] else " ORDER BY id DESC"
         
-    data_query = "SELECT id, std_date, model_gb, image_path, image_name, org_image_name, yolo_class, effnet_class, score, anomaly_score, DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at, note, is_reclassified, modified_by, IFNULL(DATE_FORMAT(modified_at, '%%Y-%%m-%%d %%H:%%i:%%s'), '') AS modified_at, xai_image_path " + base_query + order_clause + " LIMIT %s OFFSET %s"
+    data_query = "SELECT id, std_date, model_gb, image_path, image_name, org_image_name, yolo_class, effnet_class, score, anomaly_score, initial_prediction, DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at, note, is_reclassified, modified_by, IFNULL(DATE_FORMAT(modified_at, '%%Y-%%m-%%d %%H:%%i:%%s'), '') AS modified_at, xai_image_path " + base_query + order_clause + " LIMIT %s OFFSET %s"
     
     conn = get_db_connection()
     with conn.cursor() as cursor:
@@ -1833,6 +1872,25 @@ def api_send_email():
     data = request.json
     send_notification_email(data['subject'], data['recipients'], data['body'])
     return jsonify({'status': 'success'})
+# --- [추가 끝] ---
+
+# --- 🔴 [추가 시작] train.py로부터 재학습 진행률을 받아 웹소켓으로 전송하는 API ---
+@app.route('/api/update_retraining_progress', methods=['POST'])
+def update_retraining_progress():
+    data = request.json
+    job_id = data.get('job_id')
+    progress = data.get('progress')
+    message = data.get('message')
+    
+    if job_id is not None and progress is not None:
+        # 'retraining_progress' 라는 이름의 웹소켓 이벤트를 클라이언트로 전송
+        socketio.emit('retraining_progress', {
+            'job_id': job_id,
+            'progress': progress,
+            'message': message
+        })
+        return jsonify({'status': 'success'})
+    return jsonify({'status': 'error', 'message': 'Missing data'}), 400
 # --- [추가 끝] ---
 
 if __name__ == '__main__':
