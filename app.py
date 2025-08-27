@@ -1,6 +1,6 @@
 # ⭐ eventlet.monkey_patch()를 최상단에 위치시켜야 한다.
-import eventlet
-eventlet.monkey_patch()
+# import eventlet
+# eventlet.monkey_patch()
 
 import sys
 from flask import Flask, render_template, jsonify, make_response, redirect, url_for, flash, request
@@ -13,6 +13,7 @@ import io
 import cv2
 import uuid
 import os
+from dotenv import load_dotenv
 import torch
 import numpy as np
 from torchvision import transforms
@@ -35,15 +36,18 @@ import ttach as tta
 import psutil # 프로세스 제어
 from flask_socketio import SocketIO  # 웹 소켓
 
-# 🔴 라이브러리 추가
 from flask_mailing import Mail, Message
 import asyncio
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 from authlib.integrations.flask_client import OAuth
+from flask import g
 
 # 취소 요청을 저장할 전역 딕셔너리
-# { '세션ID': True } 형태로 저장됩니다.
+# { '세션ID': True } 형태로 저장
 CANCELLATION_REQUESTS = {}
+
+# .env 파일에서 환경 변수를 로드
+load_dotenv()
 
 app = Flask(__name__)
 socketio = SocketIO(app)  # SocketIO 초기화
@@ -57,39 +61,33 @@ if not os.path.exists(xaiResultPath):
     os.makedirs(xaiResultPath)
 
 app.secret_key = 'fubao123'  # 웹 소켓 사용시 필수
-app.config['ADMIN_SECRET_CODE'] = 'admin123'
+# .env 파일에서 ADMIN_SECRET_CODE 값을 읽어오고, 없다면 기본값 'admin123'을 사용한다.
+# .strip()을 추가하여 앞뒤 공백을 제거한다.
+app.config['ADMIN_SECRET_CODE'] = os.getenv('ADMIN_SECRET_CODE', 'admin123').strip()
 
-# --- 🔴 [추가] Flask-Mailing 설정 ---
-# (주의: 아래 정보는 실제 Gmail ID와 앱 비밀번호로 변경해야 합니다.)
-app.config["MAIL_USERNAME"] = 'your_gmail_id@gmail.com'
-app.config["MAIL_PASSWORD"] = 'your_gmail_app_password'
+# Flask-Mailing 설정
+app.config["MAIL_USERNAME"] = os.getenv("MAIL_USERNAME")
+app.config["MAIL_PASSWORD"] = os.getenv("MAIL_PASSWORD")
 app.config["MAIL_PORT"] = 587
 app.config["MAIL_SERVER"] = 'smtp.gmail.com'
 app.config["MAIL_USE_TLS"] = True
 app.config["MAIL_USE_SSL"] = False
-app.config["MAIL_FROM"] = 'your_gmail_id@gmail.com'
+app.config["MAIL_FROM"] = os.getenv("MAIL_USERNAME")
 app.config["MAIL_FROM_NAME"] = 'FUBAO 알림'
 mail = Mail(app)
 s = URLSafeTimedSerializer(app.secret_key)
-# --- [추가 끝] ---
 
-# --- 🔴 [추가] Google OAuth 설정 ---
-# (주의: 아래 정보는 Google Cloud Console에서 발급받은 정보로 변경해야 합니다.)
+# Google OAuth 설정
 oauth = OAuth(app)
 google = oauth.register(
     name='google',
-    client_id='YOUR_GOOGLE_CLIENT_ID',
-    client_secret='YOUR_GOOGLE_CLIENT_SECRET',
-    access_token_url='https://accounts.google.com/o/oauth2/token',
-    access_token_params=None,
-    authorize_url='https://accounts.google.com/o/oauth2/auth',
-    authorize_params=None,
-    api_base_url='https://www.googleapis.com/oauth2/v1/',
-    userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',
-    client_kwargs={'scope': 'openid email profile'},
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration'
+    client_id=os.getenv("GOOGLE_CLIENT_ID"),
+    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={
+        'scope': 'openid email profile'
+    }
 )
-# --- [추가 끝] ---
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -131,7 +129,7 @@ def log_audit_action(action, target_type=None, target_id=None, details=None):
 # --- [추가 끝] ---
 
 class User(UserMixin):
-    def __init__(self, id, userid, password_hash, name, email, company, role, is_admin):
+    def __init__(self, id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete):
         self.id = id
         self.username = userid
         self.password_hash = password_hash
@@ -140,6 +138,7 @@ class User(UserMixin):
         self.company = company
         self.role = role
         self.is_admin = is_admin
+        self.is_onboarding_complete = is_onboarding_complete
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -151,13 +150,14 @@ class User(UserMixin):
 def load_user(user_id):
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute("SELECT id, userid, password_hash, name, email, company, role, is_admin FROM users WHERE id = %s", (user_id,))
+        cursor.execute("SELECT id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete FROM users WHERE id = %s", (user_id,))
         user_data = cursor.fetchone()
     conn.close()
     if user_data:
         return User(id=user_data['id'], userid=user_data['userid'], password_hash=user_data['password_hash'], 
             name=user_data['name'], email=user_data['email'], 
-            company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'])
+            company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'],
+            is_onboarding_complete=user_data['is_onboarding_complete'])
     return None
 
 # 모델 로드
@@ -279,7 +279,7 @@ def _process_files_background_task(files_data, std_date, model_gb, sid):
                 conn.commit()
             conn.close()
 
-            eventlet.sleep(0.05) # 서버 부하 감소를 위한 짧은 대기
+            socketio.sleep(0) # 다른 백그라운드 작업에 실행을 양보
 
         # for 루프가 완전히 끝난 후에, 여기서 단 한번만 최종 결과를 보낸다.
         if CANCELLATION_REQUESTS.get(sid):
@@ -1015,10 +1015,21 @@ def check_email():
 # 관리자 코드 실시간 확인 API
 @app.route('/check_admin_code', methods=['POST'])
 def check_admin_code():
+    # POST 요청이 아니거나, JSON이 아니면 에러 처리 (안정성 강화)
+    if not request.is_json:
+        return jsonify({"valid": False, "error": "Invalid request format"}), 400
+
     data = request.get_json()
-    admin_code = data.get('admin_code')
-    # 설정된 비밀 코드와 일치하는지 확인
-    if admin_code == app.config['ADMIN_SECRET_CODE']:
+    admin_code_from_user = data.get('admin_code')
+    # .strip()을 추가하여 .env 파일의 잠재적인 공백 문제를 방지
+    secret_code_from_config = app.config.get('ADMIN_SECRET_CODE', '').strip()
+
+    # 입력값이 없거나, 설정값이 없는 경우를 처리
+    if not admin_code_from_user or not secret_code_from_config:
+        return jsonify({'valid': False})
+    
+    # .strip()으로 공백을 제거한 뒤 비교
+    if admin_code_from_user.strip() == secret_code_from_config:
         return jsonify({'valid': True})
     else:
         return jsonify({'valid': False})
@@ -1040,11 +1051,6 @@ def register():
         company = request.form.get('company', '')
         role = request.form.get('role', '')
         terms = request.form.get('terms')
-        admin_code = request.form.get('admin_code', '')
-        is_admin_user = False
-
-        if admin_code == app.config['ADMIN_SECRET_CODE']:
-            is_admin_user = True
 
         if password != password_confirm:
             flash('비밀번호가 일치하지 않습니다.', 'error')
@@ -1064,10 +1070,17 @@ def register():
 
             hashed_password = generate_password_hash(password)
             cursor.execute("""
-                INSERT INTO users (userid, password_hash, name, email, company, role, is_admin)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (userid, hashed_password, name, email, company, role, is_admin_user))
+                INSERT INTO users (userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (userid, hashed_password, name, email, company, role, False, True))  # 자체 가입자는 is_onboarding_complete를 True로 간주
         conn.commit()
+
+        # 가입 후 바로 로그인 시키고 온보딩 페이지로 이동 (또는 메인으로)
+        # 이 부분은 정책에 따라 달라질 수 있다. 자체 가입 시에는 온보딩을 건너뛰고 바로 메인으로 보내도 좋다.
+        # 여기서는 바로 로그인 시키고 메인으로 보내는 로직으로 수정한다.
+        new_user_id = cursor.lastrowid
+        user_obj = load_user(new_user_id)
+        login_user(user_obj)
         conn.close()
 
         flash('회원가입이 완료되었습니다. 로그인해주세요.', 'register_success')
@@ -1518,7 +1531,7 @@ def delete_all():
     
     return jsonify({'status': 'success', 'message': f'총 {deleted_count}개의 항목이 삭제 처리되었습니다.'})
 
-# --- 🔴 [추가] 1단계: 계정 찾기 및 비밀번호 재설정 ---
+# 계정 찾기 및 비밀번호 재설정
 @app.route('/find_account', methods=['GET', 'POST'])
 def find_account():
     if request.method == 'POST':
@@ -1591,19 +1604,24 @@ def reset_password_token(token):
         return redirect(url_for('login'))
 
     return render_template('reset_password.html', token=token)
-# --- [추가 끝: 계정 찾기] ---
 
 
-# --- 🔴 [추가] 2단계: Google 소셜 로그인 ---
+# Google 소셜 로그인
 @app.route('/login/google')
 def login_google():
     redirect_uri = url_for('authorize_google', _external=True)
-    return google.authorize_redirect(redirect_uri)
+    # prompt='select_account' 옵션을 추가하여 항상 계정 선택 화면을 띄운다.
+    return google.authorize_redirect(redirect_uri, prompt='select_account')
 
 @app.route('/login/google/callback')
 def authorize_google():
     token = google.authorize_access_token()
-    user_info = google.get('userinfo').json()
+
+    # userinfo 엔드포인트의 전체 URL을 직접 사용하여 사용자 정보를 가져온다.
+    # 이 주소는 oauth.register 설정의 server_metadata_url 안에 정의되어 있다.
+    user_info_response = google.get('https://openidconnect.googleapis.com/v1/userinfo')
+    user_info = user_info_response.json()
+
     email = user_info['email']
     name = user_info['name']
 
@@ -1617,7 +1635,10 @@ def authorize_google():
             login_user(user_obj)
             flash('Google 계정으로 로그인되었습니다.', 'login_success')
         else:
-            temp_password = generate_password_hash(os.urandom(16))
+            # 임시 비밀번호를 랜덤 '문자열'로 생성
+            # uuid.uuid4().hex는 'a1b2c3d4...' 형태의 32자리 랜덤 문자열을 생성한다.
+            temp_password_string = uuid.uuid4().hex 
+            temp_password_hash = generate_password_hash(temp_password_string)
             base_userid = email.split('@')[0]
             userid = base_userid
             counter = 1
@@ -1631,17 +1652,71 @@ def authorize_google():
             cursor.execute("""
                 INSERT INTO users (userid, password_hash, name, email, is_admin)
                 VALUES (%s, %s, %s, %s, %s)
-            """, (userid, temp_password, name, email, False))
+            """, (userid, temp_password_hash, name, email, False))
             conn.commit()
             
             new_user_id = cursor.lastrowid
             user_obj = load_user(new_user_id)
             login_user(user_obj)
-            flash('Google 계정으로 자동 가입 및 로그인되었습니다.', 'login_success')
+            # 온보딩 페이지로 리디렉션
+            flash('가입이 완료되었습니다. 프로필을 완성해주세요.', 'success')
+            return redirect(url_for('complete_profile'))
     conn.close()
     return redirect(url_for('index'))
-# --- [추가 끝: Google 로그인] ---
 
+@app.route('/complete_profile', methods=['GET', 'POST'])
+@login_required
+def complete_profile():
+    # 이 페이지는 온보딩이 완료되지 않은 사용자만 접근 가능
+    if current_user.is_onboarding_complete:
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        company = request.form.get('company', '')
+        role = request.form.get('role', '')
+        admin_code_from_user = request.form.get('admin_code', '')
+        
+        # is_admin 상태를 결정할 변수
+        is_admin_to_be = current_user.is_admin  # 기본값은 현재 상태 유지
+
+        # 사용자가 관리자 코드를 '입력한 경우에만' 검증 로직을 실행
+        if admin_code_from_user:
+            secret_code = app.config.get('ADMIN_SECRET_CODE', '').strip()
+            
+            # .strip()으로 공백을 제거한 뒤 비교
+            if admin_code_from_user.strip() == secret_code:
+                is_admin_to_be = True # 코드가 맞으면 관리자로 설정
+                flash('관리자 코드가 확인되었습니다. 관리자 권한이 부여됩니다.', 'success')
+            else:
+                # 코드를 입력했는데 틀렸을 경우, 여기서 함수를 중단하고 에러 메시지와 함께 페이지를 다시 보여줌
+                flash('입력하신 관리자 코드가 올바르지 않습니다.', 'error')
+                return render_template('complete_profile.html')
+
+        # DB 업데이트 로직은 단 한 번만 실행
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE users SET company = %s, role = %s, is_admin = %s, is_onboarding_complete = TRUE WHERE id = %s",
+                (company, role, is_admin_to_be, current_user.id)
+            )
+        conn.commit()
+        conn.close()
+        
+        # DB 업데이트 후에는 항상 메인 페이지로 이동
+        flash('프로필이 성공적으로 업데이트되었습니다!', 'profile_success')
+        return redirect(url_for('index'))
+
+    # GET 요청 시에는 그냥 페이지를 보여줌.
+    return render_template('complete_profile.html')
+
+@app.before_request
+def check_onboarding():
+    # 로그인 상태이고, 온보딩 페이지로 가는 중이 아니며, 온보딩을 아직 완료하지 않았다면
+    if current_user.is_authenticated \
+        and request.endpoint not in ['complete_profile', 'logout', 'static', 'check_admin_code'] \
+        and not current_user.is_onboarding_complete:
+            # 강제로 추가 정보 입력 페이지로 보냄
+            return redirect(url_for('complete_profile'))
 
 # --- 🔴 [추가] 3단계: AI 기능 고도화 (API 기반) ---
 @app.route('/api/auto_label/<int:item_id>')
