@@ -34,7 +34,7 @@ scipy
 pillow
 
 # Utility & Others
-requests
+requests==2.32.5
 PyYAML
 python-dateutil
 psutil

@@ -61,6 +61,17 @@
             <label for="role">직무 또는 역할 (선택)</label>
             <input type="text" id="role" name="role" value="{{ user_data.role or current_user.role or '' }}" placeholder="예: 품질 관리, 데이터 분석가">
         </div>
+        <!-- 일반 사용자에게만 보이는 관리자 전환 섹션 -->
+        {% if not current_user.is_admin %}
+        <hr class="form-divider">
+        <h3 class="form-section-title">관리자 권한으로 전환</h3>
+        <p class="form-section-desc">관리자 코드를 입력하면 계정이 관리자 권한으로 즉시 전환됩니다.</p>
+        <div class="form-group">
+            <label for="admin_code">관리자 코드</label>
+            <input type="text" id="admin_code" name="admin_code" placeholder="관리자 코드를 입력하세요">
+            <div id="admin-code-feedback" class="feedback-message"></div>
+        </div>
+        {% endif %}
 
         <!-- Jinja if문으로 비밀번호 변경 섹션 전체를 제어 -->
         {% if auth_provider != 'google' %}
@@ -86,6 +97,20 @@
 
         <button type="submit" class="auth-btn">정보 수정</button>
     </form>
+    <!-- 카카오톡 연동 섹션 -->
+    <hr class="form-divider">
+    <h3 class="form-section-title">알림 연동</h3>
+    {# {% if current_user.kakao_access_token %} #}
+        <!-- <div style="text-align: center; color: green; font-weight: bold; margin-bottom: 15px;">
+            <i class="fas fa-check-circle"></i> 카카오톡 알림이 연동되었습니다.
+        </div>
+        <a href="{{ url_for('unlink_kakao') }}" class="auth-btn" style="background-color: #f0f0f0; color: #333;">연동 해제</a> -->
+    {# {% else %} #}
+        <!-- <p class="form-section-desc">주요 알림을 카카오톡으로 받으려면 계정을 연동하세요.</p>
+        <a href="{{ url_for('link_kakao') }}" class="auth-btn social-login-btn kakao">
+            <img src="{{ url_for('static', filename='img/kakao_login_large_wide.png') }}" alt="카카오 로그인"/>
+        </a> -->
+    {# {% endif %} #}
     <hr class="form-divider">
     <div class="delete-account-section">
         <p>계정을 영구적으로 삭제하시려면 아래 버튼을 클릭하세요. 이 작업은 되돌릴 수 없습니다.</p>
@@ -272,6 +297,40 @@ $(function() {
             $('#delete-account-form').submit();
         }
     });
+
+    // ----- [추가] 관리자 코드 실시간 유효성 검사 -----
+    let adminCodeCheckTimeout;  // 디바운싱 타이머
+
+    // #admin_code 입력 필드가 존재할 경우에만 이벤트를 바인딩
+    if ($('#admin_code').length) {
+        $('#admin_code').on('input', function() {
+            const code = $(this).val();
+            const feedback = $('#admin-code-feedback');
+            clearTimeout(adminCodeCheckTimeout);  // 이전 타이머 취소
+
+            if (code === '') {
+                feedback.text('');
+                return;
+            }
+
+            // 0.5초 디바운싱: 타이핑이 멈춘 후 0.5초 뒤에 서버에 요청
+            adminCodeCheckTimeout = setTimeout(() => {
+                $.ajax({
+                    url: '/check_admin_code', // 기존 API 재사용
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ admin_code: code }),
+                    success: function(response) {
+                        if (response.valid) {
+                            feedback.text('관리자 코드가 확인되었습니다.').removeClass('unavailable').addClass('available');
+                        } else {
+                            feedback.text('올바르지 않은 관리자 코드입니다.').removeClass('available').addClass('unavailable');
+                        }
+                    }
+                });
+            }, 500);
+        });
+    }
 });
 </script>
 {% endblock %}

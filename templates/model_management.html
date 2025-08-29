@@ -13,9 +13,15 @@
     .job-history-table th { background-color: #f8f9fa; }
     .job-history-filters { margin-top: 20px; padding: 15px; background-color: #f1f3f5; border: 1px solid #dee2e6; border-radius: 5px; display: flex; gap: 10px; align-items: center; }
 
-    /* 🔴 [추가] 재학습 진행률 바 스타일 */
+    /* 재학습 진행률 바 스타일 */
     .progress-bar-container { width: 100%; background-color: #e0e0e0; border-radius: 5px; overflow: hidden; margin-top: 10px; }
     #retraining-progress-bar { width: 0%; height: 20px; background-color: #007bff; text-align: center; line-height: 20px; color: white; border-radius: 5px; transition: width 0.5s ease-in-out; margin: 0; padding: 0;}
+
+    /* 모달 내 form-group 스타일 */
+    #action-modal .form-group { text-align: left; }
+    #action-modal .form-group label { margin-bottom: 8px; }
+    #action-modal .form-group input[type="number"],
+    #action-modal .form-group input[type="text"] { text-align: left; width: 100%; }
 </style>
 {% endblock %}
 
@@ -34,7 +40,7 @@
         </p>
         <div id="retrain-controls-supervised">
             <form action="{{ url_for('retrain_model') }}" method="POST" style="display: inline-block;">
-                <button type="submit" id="retrain-btn-supervised" class="btn-promote" style="padding: 10px 20px; font-size: 1.1rem;">지도학습 시작</button>
+                <button type="button" id="retrain-btn-supervised" class="btn-promote open-retrain-modal" data-model="supervised" style="padding: 10px 20px; font-size: 1.1rem;">지도학습 시작</button>
             </form>
         </div>
     </div>
@@ -48,7 +54,7 @@
             <strong>현재 재학습에 반영될 '신규 정상' 이미지는 총 <span id="unsupervised-count" style="color: #28a745;">0</span>개 입니다.</strong>
         </p>
         <div id="retrain-controls-unsupervised">
-            <button id="retrain-btn-unsupervised" class="btn-promote" style="background-color: #28a745; padding: 10px 20px; font-size: 1.1rem;">비지도학습 시작</button>
+            <button type="button" id="retrain-btn-unsupervised" class="btn-promote open-retrain-modal" data-model="unsupervised" style="background-color: #28a745; padding: 10px 20px; font-size: 1.1rem;">비지도학습 시작</button>
         </div>
     </div>
     <hr class="form-divider" style="margin: 40px 0;">
@@ -136,10 +142,104 @@ $(document).ready(function() {
     }
 
     function checkUnsupervisedCount() {
-    $.getJSON('/api/unsupervised_retrain_count', function(data) {
-        $('#unsupervised-count').text(data.count || 0);
+        $.getJSON('/api/unsupervised_retrain_count', function(data) {
+            $('#unsupervised-count').text(data.count || 0);
+        });
+    }
+
+    // 재학습 시작 버튼 클릭 시 모달 열기
+    $('.open-retrain-modal').on('click', function() {
+        const modelType = $(this).data('model');
+        
+        let modalTitle, modalBody, formAction;
+
+        if (modelType === 'supervised') {
+            if (parseInt($('#supervised-count').text()) === 0) {
+                showToast('재학습할 지도학습 데이터가 없습니다.', 'warning');
+                return;
+            }
+            modalTitle = '지도학습(YOLO) 재학습 설정';
+            formAction = "{{ url_for('retrain_model') }}";
+            modalBody = `
+                <p>재학습에 사용할 하이퍼파라미터를 설정하세요.</p>
+                <div class="form-group">
+                    <label for="epochs">Epochs (학습 횟수)</label>
+                    <input type="number" id="epochs" name="epochs" value="50" min="1">
+                </div>
+                <div class="form-group">
+                    <label for="imgsz">Image Size (이미지 크기)</label>
+                    <input type="number" id="imgsz" name="imgsz" value="224" step="32" min="32">
+                </div>
+                <div class="form-group">
+                <label>Data Augmentation (데이터 증강)</label>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="augment_flip" name="augment_flip" checked>
+                    <label for="augment_flip">좌우 반전 (Horizontal Flip)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="augment_rotate" name="augment_rotate" checked>
+                    <label for="augment_rotate">회전 (Rotate)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="augment_contrast" name="augment_contrast" checked>
+                    <label for="augment_contrast">밝기/대비 조절 (Brightness/Contrast)</label>
+                </div>
+            </div>
+            `;
+        } else { // unsupervised
+            if (parseInt($('#unsupervised-count').text()) === 0) {
+                showToast('재학습할 비지도학습 데이터가 없습니다.', 'warning');
+                return;
+            }
+            modalTitle = '비지도학습(Autoencoder) 재학습 설정';
+            formAction = "{{ url_for('retrain_autoencoder') }}";
+            modalBody = `
+                <p>재학습에 사용할 하이퍼파라미터를 설정하세요.</p>
+                <div class="form-group">
+                    <label for="epochs">Epochs (학습 횟수)</label>
+                    <input type="number" id="epochs" name="epochs" value="10" min="1">
+                </div>
+                <div class="form-group">
+                    <label for="lr">Learning Rate (학습률)</label>
+                    <input type="text" id="lr" name="lr" value="0.0001">
+                </div>
+                <div class="form-group">
+                    <label for="batch_size">Batch Size</label>
+                    <input type="number" id="batch_size" name="batch_size" value="16" min="1">
+                </div>
+            `;
+        }
+
+        $('#modal-title').text(modalTitle);
+        // 모달 바디를 form으로 감싸서 제출 가능하도록 변경
+        $('#modal-body').html(`<form id="retrain-form" action="${formAction}" method="POST">${modalBody}</form>`);
+        $('#modal-confirm-btn').text('재학습 시작');
+        $('#action-modal').fadeIn();
     });
-}
+
+    // 모달의 확인 버튼 클릭 시 form 제출
+    $('#modal-confirm-btn').on('click', function() {
+        if (confirm('설정된 값으로 재학습을 시작하시겠습니까?')) {
+            const form = $('#retrain-form');
+            const modelType = $('.open-retrain-modal:focus').data('model');
+
+            if (modelType === 'unsupervised') {
+                // 비지도학습은 AJAX로 제출
+                $.post(form.attr('action'), form.serialize())
+                    .done(function(res) {
+                        showToast(res.message, 'success');
+                        $('#action-modal').fadeOut();
+                        window.location.reload();
+                    })
+                    .fail(function(err) {
+                        showToast(err.responseJSON.message, 'error');
+                    });
+            } else {
+                // 지도학습은 일반 form 제출
+                form.submit();
+            }
+        }
+    });
 
     // ----- 2. 기존의 폴링 방식 상태 확인 함수 (페이지 첫 로드 시 사용) -----
     function checkInitialStatus() {

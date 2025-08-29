@@ -2,6 +2,8 @@
 # import eventlet
 # eventlet.monkey_patch()
 
+import argparse
+import shutil
 import sys
 from flask import Flask, render_template, jsonify, make_response, redirect, url_for, flash, request
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -41,6 +43,10 @@ import asyncio
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 from authlib.integrations.flask_client import OAuth
 from flask import g
+import albumentations as A
+
+from train import IMAGES_PATH, LABELS_PATH, RETRAIN_DATASET_PATH
+import requests
 
 # 취소 요청을 저장할 전역 딕셔너리
 # { '세션ID': True } 형태로 저장
@@ -50,6 +56,11 @@ CANCELLATION_REQUESTS = {}
 load_dotenv()
 
 app = Flask(__name__)
+
+# 카카오 설정
+app.config['KAKAO_CLIENT_ID'] = os.getenv('KAKAO_CLIENT_ID')
+app.config['KAKAO_CLIENT_SECRET'] = os.getenv('KAKAO_CLIENT_SECRET')
+
 socketio = SocketIO(app)  # SocketIO 초기화
 
 uploadPath = './static/upload'
@@ -87,6 +98,17 @@ google = oauth.register(
     client_kwargs={
         'scope': 'openid email profile'
     }
+)
+
+# 카카오 OAuth 설정
+kakao = oauth.register(
+    name='kakao',
+    client_id=app.config.get('KAKAO_CLIENT_ID'),
+    client_secret=app.config.get('KAKAO_CLIENT_SECRET'),
+    api_base_url='https://kapi.kakao.com/',
+    access_token_url='https://kauth.kakao.com/oauth/token',
+    authorize_url='https://kauth.kakao.com/oauth/authorize',
+    client_kwargs={'scope': 'profile_nickname profile_image account_email'},
 )
 
 login_manager = LoginManager()
@@ -128,7 +150,7 @@ def log_audit_action(action, target_type=None, target_id=None, details=None):
     conn.close()
 
 class User(UserMixin):
-    def __init__(self, id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete, auth_provider='local'):
+    def __init__(self, id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete, auth_provider='local', kakao_access_token=None):
         self.id = id
         self.username = userid
         self.password_hash = password_hash
@@ -139,6 +161,7 @@ class User(UserMixin):
         self.is_admin = is_admin
         self.is_onboarding_complete = is_onboarding_complete
         self.auth_provider = auth_provider
+        self.kakao_access_token = kakao_access_token
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -150,7 +173,7 @@ class User(UserMixin):
 def load_user(user_id):
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute("SELECT id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete, auth_provider FROM users WHERE id = %s", (user_id,))
+        cursor.execute("SELECT id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete, auth_provider, kakao_access_token FROM users WHERE id = %s", (user_id,))
         user_data = cursor.fetchone()
     conn.close()
     if user_data:
@@ -158,7 +181,8 @@ def load_user(user_id):
             name=user_data['name'], email=user_data['email'], 
             company=user_data['company'], role=user_data['role'], is_admin=user_data['is_admin'],
             is_onboarding_complete=user_data['is_onboarding_complete'],
-            auth_provider=user_data.get('auth_provider', 'local'))
+            auth_provider=user_data.get('auth_provider', 'local'),
+            kakao_access_token=user_data.get('kakao_access_token'))
     return None
 
 # 모델 로드
@@ -201,6 +225,84 @@ def predict_with_classifier(model, input_tensor):
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
+
+# --- 카카오 연동 및 메시지 전송 관련 함수들 ---
+@app.route('/login/kakao/callback')
+def kakao_callback():
+    code = request.args.get('code')
+    rest_api_key = app.config['KAKAO_CLIENT_ID']
+    redirect_uri = url_for('kakao_callback', _external=True)
+
+    token_headers = {'Content-type': 'application/x-www-form-urlencoded;charset=utf-8'}
+    token_data = {
+        'grant_type': 'authorization_code',
+        'client_id': rest_api_key,
+        'redirect_uri': redirect_uri,
+        'code': code,
+    }
+    token_res = requests.post('https://kauth.kakao.com/oauth/token', headers=token_headers, data=token_data)
+    token_json = token_res.json()
+
+    access_token = token_json.get("access_token")
+    refresh_token = token_json.get("refresh_token")
+    expires_in = token_json.get("expires_in")
+    
+    # 토큰 만료 시간 계산
+    expiry_time = datetime.now() + timedelta(seconds=expires_in)
+
+    # DB에 토큰 정보 저장
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            UPDATE users SET kakao_access_token = %s, kakao_refresh_token = %s, kakao_token_expiry = %s
+            WHERE id = %s
+        """, (access_token, refresh_token, expiry_time, current_user.id))
+    conn.commit()
+    conn.close()
+
+    flash('카카오톡 계정이 성공적으로 연동되었습니다.', 'success')
+    return redirect(url_for('profile'))
+
+def send_kakao_message_to_admins(message_text):
+    """관리자들에게 카카오톡 메시지를 보내는 함수"""
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT id, kakao_access_token, kakao_refresh_token, kakao_token_expiry FROM users WHERE is_admin = 1 AND kakao_access_token IS NOT NULL")
+        admins = cursor.fetchall()
+    conn.close()
+
+    for admin in admins:
+        # (실제 구현 시 토큰 갱신 로직 필요)
+        send_kakao_message(admin['kakao_access_token'], message_text)
+
+def send_kakao_message(access_token, message_text):
+    """특정 사용자에게 메시지를 보내는 내부 함수"""
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-type': 'application/x-www-form-urlencoded;charset=utf-8'
+    }
+    # 간단한 텍스트 템플릿 사용
+    template = {
+        "object_type": "text",
+        "text": message_text,
+        "link": { "web_url": url_for('list_page', _external=True) }
+    }
+    data = {'template_object': str(template).replace("'", "\"")} # JSON 형식으로 변환
+    
+    res = requests.post('https://kapi.kakao.com/v2/api/talk/memo/default/send', headers=headers, data=data)
+    if res.status_code != 200:
+        print(f"카카오톡 메시지 발송 실패: {res.json()}")
+
+# 외부에서 카카오톡 알림을 요청하는 API
+@app.route('/api/send_kakao_notification', methods=['POST'])
+def api_send_kakao_notification():
+    data = request.json
+    message = data.get('message')
+    if not message:
+        return jsonify({'status': 'error', 'message': '메시지가 없습니다.'}), 400
+    
+    send_kakao_message_to_admins(message)
+    return jsonify({'status': 'success'})
 
 def _process_files_background_task(files_data, std_date, model_gb, sid):
     """ AI 분석을 수행하고, 취소 요청을 확인하며, 웹소켓으로 진행률을 전송하는 백그라운드 작업 """
@@ -249,7 +351,7 @@ def _process_files_background_task(files_data, std_date, model_gb, sid):
                 initial_prediction = "GOOD" if anomaly_score < threshold else "BAD"
                 yolo_class = '1' if initial_prediction == 'GOOD' else '0'
 
-                # --- 🔴 [수정] 이상 점수가 임계값을 넘으면 관리자에게 알림 ---
+                # 이상 점수가 임계값을 넘으면 관리자에게 알림
                 if anomaly_score >= threshold:
                     admin_emails = get_admin_emails()
                     if admin_emails:
@@ -264,7 +366,8 @@ def _process_files_background_task(files_data, std_date, model_gb, sid):
                         <p>시스템에 접속하여 확인해주세요.</p>
                         """
                         send_notification_email("[X-Ray 감지 시스템] 높은 이상 점수 감지", admin_emails, email_body)
-                # --- [수정 끝] ---
+                        kakao_message = f"🚨 높은 이상 점수 감지 🚨\n- 파일명: {org_image_name}\n- 이상 점수: {anomaly_score:.4f}"
+                        send_kakao_message_to_admins(kakao_message)
 
                 effnet_class = initial_prediction
                 score = max(0.0, 1.0 - anomaly_score)
@@ -469,6 +572,14 @@ def stats_performance_trend():
 @app.route('/admin/retrain_model', methods=['POST'])
 @admin_required
 def retrain_model():
+    # 폼에서 하이퍼파라미터 값 받기
+    epochs = request.form.get('epochs', 50, type=int)
+    imgsz = request.form.get('imgsz', 224, type=int)
+    # augmentation 파라미터 추가 (체크박스는 'on' 또는 None으로 값이 넘어옴)
+    augment_flip = request.form.get('augment_flip') == 'on'
+    augment_rotate = request.form.get('augment_rotate') == 'on'
+    augment_contrast = request.form.get('augment_contrast') == 'on'
+
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -478,12 +589,28 @@ def retrain_model():
                 flash('이미 재학습 작업이 진행 중입니다.', 'warning')
                 return redirect(url_for('model_management'))
 
-            cursor.execute("INSERT INTO retraining_jobs (status, progress_log) VALUES ('PENDING', '재학습 작업을 대기열에 추가했습니다...\\n')")
+            # 작업 로그에 선택된 하이퍼파라미터 기록
+            log_message = f"지도학습 재학습 작업을 대기열에 추가했습니다.\n"
+            log_message += f" - Epochs: {epochs}, Image Size: {imgsz}\n"
+            log_message += f" - Augmentations: Flip({augment_flip}), Rotate({augment_rotate}), Contrast({augment_contrast})\n\n"
+            
+            cursor.execute("INSERT INTO retraining_jobs (status, progress_log) VALUES ('PENDING', %s)", (log_message,))
             conn.commit()
             job_id = cursor.lastrowid
 
-            # train.py를 백그라운드 프로세스로 실행
-            process = subprocess.Popen([sys.executable, 'train.py', '--job_id', str(job_id)])
+            # train.py에 인자 전달을 위한 command 리스트 구성
+            command = [
+                sys.executable, 'train.py', 
+                '--job_id', str(job_id),
+                '--epochs', str(epochs),
+                '--imgsz', str(imgsz)
+            ]
+            # 체크박스가 선택된 경우에만 인자 추가
+            if augment_flip: command.append('--augment_flip')
+            if augment_rotate: command.append('--augment_rotate')
+            if augment_contrast: command.append('--augment_contrast')
+            
+            process = subprocess.Popen(command)
             
             # 생성된 프로세스의 PID를 DB에 즉시 저장
             cursor.execute("UPDATE retraining_jobs SET process_id = %s WHERE id = %s", (process.pid, job_id))
@@ -497,7 +624,7 @@ def retrain_model():
             conn.close()
     return redirect(url_for('model_management'))
 
-# --- 🔴 [추가 시작] 비지도 학습 재학습 관련 API ---
+# 비지도 학습 재학습 관련 API
 @app.route('/api/unsupervised_retrain_count')
 @admin_required
 def get_unsupervised_retrain_count():
@@ -514,6 +641,11 @@ def get_unsupervised_retrain_count():
 @app.route('/admin/retrain_autoencoder', methods=['POST'])
 @admin_required
 def retrain_autoencoder():
+    # 폼에서 하이퍼파라미터 값 받기 (AJAX 요청이므로 request.form 사용)
+    epochs = request.form.get('epochs', 10, type=int)
+    learning_rate = request.form.get('lr', 0.0001, type=float)
+    batch_size = request.form.get('batch_size', 16, type=int)
+
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -521,11 +653,24 @@ def retrain_autoencoder():
             if cursor.fetchone():
                 return jsonify({'status': 'error', 'message': '이미 다른 재학습 작업이 진행 중입니다.'}), 409
 
-            cursor.execute("INSERT INTO retraining_jobs (status, progress_log) VALUES ('PENDING', '비지도 학습 모델 재학습을 대기열에 추가했습니다...\\n')")
+            # 작업 로그에 선택된 하이퍼파라미터 기록
+            log_message = f"비지도 학습 모델 재학습을 대기열에 추가했습니다.\n"
+            log_message += f" - Epochs: {epochs}, Learning Rate: {learning_rate}, Batch Size: {batch_size}\n\n"
+
+            cursor.execute("INSERT INTO retraining_jobs (status, progress_log) VALUES ('PENDING', %s)", (log_message,))
             conn.commit()
             job_id = cursor.lastrowid
+            
+            # train_autoencoder.py에 인자 전달
+            command = [
+                sys.executable, 'train_autoencoder.py',
+                '--job_id', str(job_id),
+                '--epochs', str(epochs),
+                '--lr', str(learning_rate),
+                '--batch_size', str(batch_size)
+            ]
 
-            process = subprocess.Popen([sys.executable, 'train_autoencoder.py', '--job_id', str(job_id)])
+            process = subprocess.Popen(command)
             
             cursor.execute("UPDATE retraining_jobs SET process_id = %s WHERE id = %s", (process.pid, job_id))
             conn.commit()
@@ -535,7 +680,6 @@ def retrain_autoencoder():
         return jsonify({'status': 'error', 'message': str(e)}), 500
     finally:
         if conn: conn.close()
-# --- [추가 끝] ---
 
 # 재학습 중지 API
 @app.route('/api/stop_retraining', methods=['POST'])
@@ -743,9 +887,8 @@ def api_delete():
     with conn.cursor() as cursor: cursor.execute(query, ids)
     conn.commit()
     conn.close()
-    # --- 🔴 [수정] 감사 로그 기록 ---
+    # 감사 로그 기록
     log_audit_action('MOVE_TO_TRASH', details=f'{len(ids)} items')
-    # --- [수정 끝] ---
     return jsonify({'status': 'success'})
 
 # 재분류 API
@@ -1199,6 +1342,26 @@ def profile():
             'company': request.form.get('company'),
             'role': request.form.get('role')
         }
+
+        # 관리자 코드 처리 로직
+        admin_code_from_user = request.form.get('admin_code', '')
+        
+        # 관리자 코드가 입력되었고, 현재 유저가 일반 사용자인 경우에만 검증
+        if admin_code_from_user and not current_user.is_admin:
+            secret_code = app.config.get('ADMIN_SECRET_CODE', '').strip()
+            
+            if admin_code_from_user.strip() == secret_code:
+                # 코드가 일치하면 is_admin 플래그를 True로 설정하여 업데이트
+                conn = get_db_connection()
+                with conn.cursor() as cursor:
+                    cursor.execute("UPDATE users SET is_admin = TRUE WHERE id = %s", (current_user.id,))
+                conn.commit()
+                conn.close()
+                flash('관리자 권한이 부여되었습니다! 다시 로그인하면 적용됩니다.', 'success')
+            else:
+                # 코드가 일치하지 않으면 오류 메시지 표시 후 현재 페이지 유지
+                flash('입력하신 관리자 코드가 올바르지 않습니다.', 'error')
+                return render_template('profile.html', user_data=form_data, auth_provider=current_user.auth_provider)
         
         current_password = request.form.get('current_password')
         new_password = request.form.get('new_password')
@@ -1253,7 +1416,7 @@ def profile():
 @app.route('/admin')
 @admin_required  # 관리자만 접근 가능
 def admin_dashboard():
-    # --- 🔴 [수정] 필터링 로직 추가 ---
+    # 필터링 로직 추가
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     is_admin = request.args.get('is_admin')
@@ -1292,7 +1455,12 @@ def model_management():
     conn = get_db_connection()
     with conn.cursor() as cursor:
         # 재학습에 반영될 이미지 개수 조회 (기존과 동일)
-        cursor.execute("SELECT COUNT(*) as count FROM classified_objects WHERE is_reclassified = 1 AND del_yn = 'N'")
+        # 지도학습(S) 재학습에 반영될 이미지 개수만 정확히 조회
+        cursor.execute("""
+            SELECT COUNT(*) as count 
+            FROM classified_objects 
+            WHERE is_reclassified = 1 AND model_gb = 'S' AND del_yn = 'N'
+        """)
         reclassified_count = cursor.fetchone()['count']
 
         # 재학습 이력 목록을 페이지네이션으로 조회
@@ -1402,9 +1570,8 @@ def toggle_admin(user_id):
     conn.commit()
     conn.close()
     flash(f'사용자(ID: {user_id})를 관리자로 임명했습니다.', 'success')
-    # --- 🔴 [수정] 감사 로그 기록 ---
+    # 감사 로그 기록
     log_audit_action('PROMOTE_ADMIN', target_type='user', target_id=user_id)
-    # --- [수정 끝] ---
     return redirect(url_for('admin_dashboard'))
 
 # 회원 삭제 라우트
@@ -1431,9 +1598,8 @@ def delete_user(user_id):
     conn.commit()
     conn.close()
     flash(f'사용자(ID: {user_id})가 삭제되었습니다.', 'success')
-    # --- 🔴 [수정] 감사 로그 기록 ---
+    # 감사 로그 기록
     log_audit_action('DELETE_USER', target_type='user', target_id=user_id)
-    # --- [수정 끝] ---
     return redirect(url_for('admin_dashboard'))
 
 # 회원 탈퇴 처리
@@ -1759,6 +1925,71 @@ def authorize_google():
     conn.close()
     return redirect(url_for('index'))
 
+@app.route('/login/kakao')
+def login_kakao():
+    """로그인 페이지에서 사용되는 소셜 로그인 시작 라우트입니다."""
+    redirect_uri = url_for('authorize_kakao', _external=True)
+    # prompt='login' 옵션으로 항상 카카오 로그인 창을 띄웁니다.
+    return kakao.authorize_redirect(redirect_uri, prompt='login')
+
+@app.route('/login/kakao/callback')
+def authorize_kakao():
+    """카카오 인증 후, 신규 가입 또는 로그인을 처리하는 콜백 함수입니다."""
+    try:
+        token = kakao.authorize_access_token()
+    except Exception as e:
+        print(f"카카오 토큰 발급 오류: {e}")
+        flash('카카오 인증 중 오류가 발생했습니다.', 'error')
+        return redirect(url_for('login'))
+
+    user_info_res = kakao.get('v2/user/me')
+    user_info = user_info_res.json()
+    kakao_account = user_info.get('kakao_account')
+
+    if not kakao_account or not kakao_account.get('email'):
+        flash('카카오 계정에서 이메일 정보 제공에 동의해야 합니다.', 'error')
+        return redirect(url_for('login'))
+        
+    email = kakao_account.get('email')
+
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+        user_data = cursor.fetchone()
+
+        # DB에 해당 이메일 사용자가 이미 존재하면 -> 로그인 처리
+        if user_data:
+            user_obj = load_user(user_data['id'])
+            login_user(user_obj)
+            flash('카카오 계정으로 로그인되었습니다.', 'login_success')
+            return redirect(url_for('index'))
+
+        # DB에 해당 이메일 사용자가 없으면 -> 신규 가입 처리
+        else:
+            profile = kakao_account.get('profile')
+            name = profile.get('nickname') if profile else "사용자"
+            temp_password_hash = generate_password_hash(uuid.uuid4().hex)
+            base_userid = email.split('@')[0].replace('.', '').replace('-', '')
+            userid = base_userid
+            counter = 1
+            while True:
+                cursor.execute("SELECT id FROM users WHERE userid = %s", (userid,))
+                if not cursor.fetchone(): break
+                userid = f"{base_userid}{counter}"
+                counter += 1
+
+            cursor.execute("""
+                INSERT INTO users (userid, password_hash, name, email, is_admin, auth_provider)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (userid, temp_password_hash, name, email, False, 'kakao'))
+            conn.commit()
+            
+            new_user_id = cursor.lastrowid
+            user_obj = load_user(new_user_id)
+            login_user(user_obj)
+            return redirect(url_for('complete_profile'))
+    conn.close()
+
 @app.route('/complete_profile', methods=['GET', 'POST'])
 @login_required
 def complete_profile():
@@ -1813,34 +2044,8 @@ def check_onboarding():
             # 강제로 추가 정보 입력 페이지로 보냄
             return redirect(url_for('complete_profile'))
 
-# --- 🔴 [추가] 3단계: AI 기능 고도화 (API 기반) ---
-@app.route('/api/auto_label/<int:item_id>')
-@login_required
-def auto_label(item_id):
-    # 이 기능은 실제 구현 시 복잡한 이미지 처리 로직이 필요합니다.
-    # 여기서는 기능의 존재를 보여주기 위한 예시(placeholder)로,
-    # 이미지 중앙에 임의의 박스를 반환합니다.
-    suggested_box = {'x': 100, 'y': 120, 'width': 50, 'height': 60}
-    return jsonify({'status': 'success', 'box': suggested_box})
 
-@app.route('/stats/model_performance_by_version')
-@login_required
-def model_performance_by_version():
-    conn = get_db_connection()
-    with conn.cursor() as cursor:
-        cursor.execute("""
-            SELECT version, performance 
-            FROM retraining_jobs 
-            WHERE status = 'COMPLETED' AND version IS NOT NULL
-            ORDER BY id ASC
-        """)
-        data = cursor.fetchall()
-    conn.close()
-    return jsonify(data)
-# --- [추가 끝: AI 기능 API] ---
-
-
-# --- 🔴 [추가] 4단계: 감사 로그 ---
+# 감사 로그
 @app.route('/admin/audit_logs')
 @admin_required
 def audit_logs():
@@ -1851,17 +2056,16 @@ def audit_logs():
     conn = get_db_connection()
     with conn.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) as total FROM audit_logs")
-        total = cursor.fetchone()['total']
+        total_logs = cursor.fetchone()['total']
         
         cursor.execute("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT %s OFFSET %s", (per_page, offset))
         logs = cursor.fetchall()
     conn.close()
 
-    return render_template('audit_logs.html', logs=logs, page=page, per_page=per_page, total=total)
-# --- [추가 끝: 감사 로그] ---
+    return render_template('audit_logs.html', logs=logs, page=page, per_page=per_page, total_logs=total_logs)
 
 
-# --- 🔴 [추가] train.py에서 이메일 발송을 위한 API ---
+# train.py에서 이메일 발송을 위한 API
 @app.route('/api/admin_emails')
 def api_get_admin_emails():
     return jsonify({'emails': get_admin_emails()})
@@ -1871,9 +2075,8 @@ def api_send_email():
     data = request.json
     send_notification_email(data['subject'], data['recipients'], data['body'])
     return jsonify({'status': 'success'})
-# --- [추가 끝] ---
 
-# --- 🔴 [추가 시작] train.py로부터 재학습 진행률을 받아 웹소켓으로 전송하는 API ---
+# train.py로부터 재학습 진행률을 받아 웹소켓으로 전송하는 API
 @app.route('/api/update_retraining_progress', methods=['POST'])
 def update_retraining_progress():
     data = request.json
@@ -1890,7 +2093,89 @@ def update_retraining_progress():
         })
         return jsonify({'status': 'success'})
     return jsonify({'status': 'error', 'message': 'Missing data'}), 400
-# --- [추가 끝] ---
+
+def prepare_dataset(data, args):
+    print("재학습용 데이터셋을 구성합니다...")
+    if os.path.exists(RETRAIN_DATASET_PATH):
+        shutil.rmtree(RETRAIN_DATASET_PATH)
+    os.makedirs(IMAGES_PATH)
+    os.makedirs(LABELS_PATH)
+
+    # 전달받은 인자에 따라 동적으로 증강 파이프라인 구성
+    transforms_list = []
+    if args.augment_flip:
+        transforms_list.append(A.HorizontalFlip(p=0.5))
+    if args.augment_rotate:
+        transforms_list.append(A.Rotate(limit=15, p=0.5))
+    if args.augment_contrast:
+        transforms_list.append(A.RandomBrightnessContrast(p=0.3))
+    
+    transform = A.Compose(transforms_list)
+
+    for item in data:
+        original_image_path = item['image_path']
+        final_class = item['yolo_class']
+
+        if not os.path.exists(original_image_path):
+            print(f"경고: 이미지 파일을 찾을 수 없습니다 - {original_image_path}")
+            continue
+
+        image = cv2.imread(original_image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # 원본 이미지 저장 및 라벨 생성
+        original_basename = os.path.basename(original_image_path)
+        cv2.imwrite(os.path.join(IMAGES_PATH, original_basename), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        label_file_name = os.path.splitext(original_basename)[0] + '.txt'
+        with open(os.path.join(LABELS_PATH, label_file_name), 'w') as f:
+            if final_class == '0': # BAD
+                f.write("0 0.5 0.5 0.5 0.5\n")
+
+        # 'BAD' 데이터이고 증강 옵션이 선택된 경우에만 증강 실행
+        if final_class == '0' and transforms_list:
+            for i in range(2): # 증강 이미지 2개 생성
+                augmented = transform(image=image)
+                augmented_image = augmented['image']
+                
+                aug_basename = f"aug_{i}_{original_basename}"
+                cv2.imwrite(os.path.join(IMAGES_PATH, aug_basename), cv2.cvtColor(augmented_image, cv2.COLOR_RGB2BGR))
+
+                aug_label_name = os.path.splitext(aug_basename)[0] + '.txt'
+                with open(os.path.join(LABELS_PATH, aug_label_name), 'w') as f:
+                    f.write("0 0.5 0.5 0.5 0.5\n")
+    print("데이터셋 구성 완료.")
+
+# 자동 라벨링 제안 API (Placeholder)
+@app.route('/api/auto_label/<int:item_id>')
+@login_required
+def auto_label(item_id):
+    # **실제 구현 시 필요한 로직 (개념)**
+    # 1. DB에서 item_id에 해당하는 이미지 경로 조회
+    # 2. 비지도학습(Autoencoder) 모델로 원본 이미지와 복원 이미지 생성
+    # 3. 원본과 복원 이미지의 차이(오차 맵) 계산 (scikit-image, opencv)
+    # 4. 오차 맵에서 임계값을 초과하는 영역을 찾고, 가장 큰 영역을 선택 (Contour detection)
+    # 5. 해당 영역을 감싸는 바운딩 박스 좌표(x,y,w,h) 계산 (cv2.boundingRect)
+    # 6. 계산된 좌표를 JSON으로 반환
+    
+    # 아래는 기능 시연을 위한 임시(placeholder) 데이터이다.
+    suggested_box = {'x': 100, 'y': 120, 'width': 50, 'height': 60, 'label': 'anomaly'}
+    return jsonify({'status': 'success', 'box': suggested_box})
+
+# 모델 버전별 성능 조회 API
+@app.route('/stats/model_performance_by_version')
+@login_required
+def model_performance_by_version():
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT version, performance 
+            FROM retraining_jobs 
+            WHERE status = 'COMPLETED' AND version IS NOT NULL
+            ORDER BY id ASC
+        """)
+        data = cursor.fetchall()
+    conn.close()
+    return jsonify(data)
 
 if __name__ == '__main__':
     # app.run(debug=True)

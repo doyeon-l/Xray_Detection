@@ -38,14 +38,41 @@
     </table>
     
     <!-- 페이지네이션 컨트롤 -->
-    <div id="pagination-controls" style="margin-top: 20px; text-align: center;">
-        {% if page > 1 %}
-            <a href="{{ url_for('audit_logs', page=page-1) }}" class="page-link">&laquo; 이전</a>
+    <div id="pagination-controls" style="margin-top: 20px;">
+    <ul class="pagination">
+        {% if total_logs > 0 %}
+            {% set total_pages = (total_logs / per_page)|round(0, 'ceil')|int %}
+            
+            <!-- 맨 처음 & 이전 버튼 -->
+            <li class="page-item {{ 'disabled' if page == 1 else '' }}">
+                <a class="page-link" href="{{ url_for('audit_logs', page=1) }}">&laquo;</a>
+            </li>
+            <li class="page-item {{ 'disabled' if page == 1 else '' }}">
+                <a class="page-link" href="{{ url_for('audit_logs', page=page-1) }}">&lsaquo;</a>
+            </li>
+
+            <!-- 페이지 번호 버튼 (현재 페이지 주변 5개) -->
+            {% for p in range( (page-2)|max(1), (page+3)|min(total_pages + 1) ) %}
+            <li class="page-item {{ 'active' if p == page else '' }}">
+                <a class="page-link" href="{{ url_for('audit_logs', page=p) }}">{{ p }}</a>
+            </li>
+            {% endfor %}
+
+            <!-- 다음 & 맨 끝 버튼 -->
+            <li class="page-item {{ 'disabled' if page == total_pages else '' }}">
+                <a class="page-link" href="{{ url_for('audit_logs', page=page+1) }}">&rsaquo;</a>
+            </li>
+            <li class="page-item {{ 'disabled' if page == total_pages else '' }}">
+                <a class="page-link" href="{{ url_for('audit_logs', page=total_pages) }}">&raquo;</a>
+            </li>
+        {% else %}
+            <li class="page-item disabled"><span class="page-link">&laquo;</span></li>
+            <li class="page-item disabled"><span class="page-link">&lsaquo;</span></li>
+            <li class="page-item active"><span class="page-link">1</span></li>
+            <li class="page-item disabled"><span class="page-link">&rsaquo;</span></li>
+            <li class="page-item disabled"><span class="page-link">&raquo;</span></li>
         {% endif %}
-        <span style="padding: 0 15px; font-weight: bold;">페이지 {{ page }}</span>
-        {% if logs|length == per_page %}
-            <a href="{{ url_for('audit_logs', page=page+1) }}" class="page-link">다음 &raquo;</a>
-        {% endif %}
-    </div>
+    </ul>
+</div>
 </div>
 {% endblock %}
