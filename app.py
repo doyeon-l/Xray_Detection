@@ -126,7 +126,6 @@ def log_audit_action(action, target_type=None, target_id=None, details=None):
         """, (current_user.id, current_user.name, action, target_type, target_id, details))
     conn.commit()
     conn.close()
-# --- [추가 끝] ---
 
 class User(UserMixin):
     def __init__(self, id, userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete, auth_provider='local'):
