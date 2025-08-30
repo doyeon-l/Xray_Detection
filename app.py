@@ -52,29 +52,39 @@ import requests
 # { '세션ID': True } 형태로 저장
 CANCELLATION_REQUESTS = {}
 
-# .env 파일에서 환경 변수를 로드
+# ===================================================================
+# 1단계: 모든 확장 기능 객체를 먼저 생성합니다 (app 없이)
+# ===================================================================
+login_manager = LoginManager()
+socketio = SocketIO()
+mail = Mail()
+oauth = OAuth()
+
+# ===================================================================
+# 2단계: Flask 앱을 생성하고 모든 설정을 여기에 집중시킵니다
+# ===================================================================
+# .env 파일 로드
 load_dotenv()
 
+# 디버깅: 환경 변수가 올바르게 로드되었는지 확인
+print("--- 환경 변수 로드 확인 ---")
+print(f"KAKAO_CLIENT_ID: {os.getenv('KAKAO_CLIENT_ID')}")
+print(f"KAKAO_CLIENT_SECRET: {os.getenv('KAKAO_CLIENT_SECRET')}")
+print("--------------------------")
+
 app = Flask(__name__)
+
+# --- 모든 설정을 app.config에 로드합니다 ---
+app.secret_key = 'fubao123'
+app.config['ADMIN_SECRET_CODE'] = os.getenv('ADMIN_SECRET_CODE', 'admin123').strip()
 
 # 카카오 설정
 app.config['KAKAO_CLIENT_ID'] = os.getenv('KAKAO_CLIENT_ID')
 app.config['KAKAO_CLIENT_SECRET'] = os.getenv('KAKAO_CLIENT_SECRET')
 
-socketio = SocketIO(app)  # SocketIO 초기화
-
-uploadPath = './static/upload'
-modelPath = './model'
-xaiResultPath = './static/xai_results'  # XAI 결과 저장 폴더
-
-# XAI 결과 폴더가 없으면 생성
-if not os.path.exists(xaiResultPath):
-    os.makedirs(xaiResultPath)
-
-app.secret_key = 'fubao123'  # 웹 소켓 사용시 필수
-# .env 파일에서 ADMIN_SECRET_CODE 값을 읽어오고, 없다면 기본값 'admin123'을 사용한다.
-# .strip()을 추가하여 앞뒤 공백을 제거한다.
-app.config['ADMIN_SECRET_CODE'] = os.getenv('ADMIN_SECRET_CODE', 'admin123').strip()
+# 구글 설정 (이름을 통일성 있게 변경 - 권장)
+app.config['GOOGLE_CLIENT_ID'] = os.getenv('GOOGLE_CLIENT_ID')
+app.config['GOOGLE_CLIENT_SECRET'] = os.getenv('GOOGLE_CLIENT_SECRET')
 
 # Flask-Mailing 설정
 app.config["MAIL_USERNAME"] = os.getenv("MAIL_USERNAME")
@@ -85,35 +95,52 @@ app.config["MAIL_USE_TLS"] = True
 app.config["MAIL_USE_SSL"] = False
 app.config["MAIL_FROM"] = os.getenv("MAIL_USERNAME")
 app.config["MAIL_FROM_NAME"] = 'FUBAO 알림'
-mail = Mail(app)
-s = URLSafeTimedSerializer(app.secret_key)
 
-# Google OAuth 설정
-oauth = OAuth(app)
+# ===================================================================
+# 3단계: 설정이 완료된 app 객체로 모든 확장 기능을 초기화합니다
+# ===================================================================
+login_manager.init_app(app)
+login_manager.login_view = 'login'  # init_app 호출 후에 설정해야 합니다.
+
+socketio.init_app(app)
+mail.init_app(app)
+oauth.init_app(app)
+
+# ===================================================================
+# 4단계: 초기화된 oauth 객체에 소셜 로그인을 등록합니다
+# ===================================================================
+# 이제 라이브러리가 app.config에서 자동으로 키를 찾아가므로 client_id 등을 직접 넘길 필요가 없습니다.
 google = oauth.register(
     name='google',
-    client_id=os.getenv("GOOGLE_CLIENT_ID"),
-    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    client_id=app.config['GOOGLE_CLIENT_ID'],
+    client_secret=app.config['GOOGLE_CLIENT_SECRET'],
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={
         'scope': 'openid email profile'
     }
 )
 
-# 카카오 OAuth 설정
 kakao = oauth.register(
     name='kakao',
-    client_id=app.config.get('KAKAO_CLIENT_ID'),
-    client_secret=app.config.get('KAKAO_CLIENT_SECRET'),
+    client_id=app.config['KAKAO_CLIENT_ID'],
+    client_secret=app.config['KAKAO_CLIENT_SECRET'],
     api_base_url='https://kapi.kakao.com/',
     access_token_url='https://kauth.kakao.com/oauth/token',
     authorize_url='https://kauth.kakao.com/oauth/authorize',
     client_kwargs={'scope': 'profile_nickname profile_image account_email'},
+    client_id_param_name='client_id',  # Authlib 이 Kakao 쪽에서 요구하는 방식대로 정확히 맞춰서 보내도록 보장한다.
+    token_endpoint_auth_method='client_secret_post'  # 토큰 요청 시 반드시 POST
 )
 
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
+uploadPath = './static/upload'
+modelPath = './model'
+xaiResultPath = './static/xai_results'  # XAI 결과 저장 폴더
+
+# XAI 결과 폴더가 없으면 생성
+if not os.path.exists(xaiResultPath):
+    os.makedirs(xaiResultPath)
+
+s = URLSafeTimedSerializer(app.secret_key)
 
 def admin_required(f):
     @wraps(f)
@@ -227,11 +254,12 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
 
 # --- 카카오 연동 및 메시지 전송 관련 함수들 ---
-@app.route('/login/kakao/callback')
-def kakao_callback():
+@app.route('/profile/kakao/connect')
+@login_required
+def connect_kakao_account():
     code = request.args.get('code')
     rest_api_key = app.config['KAKAO_CLIENT_ID']
-    redirect_uri = url_for('kakao_callback', _external=True)
+    redirect_uri = url_for('connect_kakao_account', _external=True)
 
     token_headers = {'Content-type': 'application/x-www-form-urlencoded;charset=utf-8'}
     token_data = {
@@ -243,10 +271,23 @@ def kakao_callback():
     token_res = requests.post('https://kauth.kakao.com/oauth/token', headers=token_headers, data=token_data)
     token_json = token_res.json()
 
+    # 디버깅을 위해 카카오 토큰 응답을 출력한다.
+    print(f"Kakao Token Response: {token_json}")
+
     access_token = token_json.get("access_token")
     refresh_token = token_json.get("refresh_token")
-    expires_in = token_json.get("expires_in")
     
+    # 'expires_in' 값을 안전하게 가져옵니다.
+    # 만약 'expires_in' 키가 없거나 값이 None이면 기본값 0을 사용한다.
+    expires_in_raw = token_json.get("expires_in", 0) 
+
+    # 'expires_in_raw'가 유효한 숫자인지 확인하고 int로 변환한다.
+    # 만약 유효하지 않으면 0으로 처리한다.
+    try:
+        expires_in = int(expires_in_raw)
+    except (ValueError, TypeError):
+        expires_in = 0 # 숫자로 변환할 수 없는 경우 대체 값
+
     # 토큰 만료 시간 계산
     expiry_time = datetime.now() + timedelta(seconds=expires_in)
 
@@ -1936,7 +1977,12 @@ def login_kakao():
 def authorize_kakao():
     """카카오 인증 후, 신규 가입 또는 로그인을 처리하는 콜백 함수입니다."""
     try:
+        # client_id 값이 제대로 전달되고 있는지 확인
+        print(">>> Kakao Callback - Using client_id:", app.config['KAKAO_CLIENT_ID'])
+
+        # 토큰 요청 전 단계에서 로그 찍기
         token = kakao.authorize_access_token()
+        # print(">>> Kakao Token Response:", token)
     except Exception as e:
         print(f"카카오 토큰 발급 오류: {e}")
         flash('카카오 인증 중 오류가 발생했습니다.', 'error')
@@ -1944,6 +1990,7 @@ def authorize_kakao():
 
     user_info_res = kakao.get('v2/user/me')
     user_info = user_info_res.json()
+    # print(">>> Kakao User Info:", user_info)   # 유저 정보 로그 추가
     kakao_account = user_info.get('kakao_account')
 
     if not kakao_account or not kakao_account.get('email'):
