@@ -116,7 +116,9 @@
         $('#toast-message').text(message);
         toast.addClass('show');
 
-        setTimeout(() => { toast.removeClass('show'); }, 3000);
+        // 에러 메시지는 조금 더 길게 표시되도록 시간 조절
+        const duration = (type === 'error') ? 5000 : 3000;
+        setTimeout(() => { toast.removeClass('show'); }, duration);
       }
 
       $('#toast-close').on('click', () => { $('#toast-notification').removeClass('show'); });
@@ -126,16 +128,19 @@
 
       // 기존 Flash 메시지 처리 로직 (이제 showToast 함수를 사용)
       const flashMessages = {
-          'login_success': { type: 'success' },
-          'register_success': { type: 'success' },
-          'profile_success': { type: 'success' },
-          'logout_success': { type: 'info' },
-          'login_error': { type: 'error' },
-          'find_id_success': { type: 'success' },
-          'find_id_error': { type: 'error' },
-          'reset_pw_success': { type: 'success' },
-          'reset_pw_error': { type: 'error' },
-          'reset_pw_complete': { type: 'success' }
+        'login_success': { type: 'success' },
+        'register_success': { type: 'success' },
+        'profile_success': { type: 'success' },
+        'logout_success': { type: 'info' },
+        'login_error': { type: 'error' },
+        'find_id_success': { type: 'success' },
+        'find_id_error': { type: 'error' },
+        'reset_pw_success': { type: 'success' },
+        'reset_pw_error': { type: 'error' },
+        'reset_pw_complete': { type: 'success' },
+        'kakao_connect_success': { type: 'success' },
+        'kakao_connect_error': { type: 'error' },
+        'kakao_unlink_success': { type: 'info' },
       };
 
       for (const className in flashMessages) {

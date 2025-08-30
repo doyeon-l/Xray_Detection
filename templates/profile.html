@@ -100,17 +100,28 @@
     <!-- 카카오톡 연동 섹션 -->
     <hr class="form-divider">
     <h3 class="form-section-title">알림 연동</h3>
-    {# {% if current_user.kakao_access_token %} #}
-        <!-- <div style="text-align: center; color: green; font-weight: bold; margin-bottom: 15px;">
-            <i class="fas fa-check-circle"></i> 카카오톡 알림이 연동되었습니다.
-        </div>
-        <a href="{{ url_for('unlink_kakao') }}" class="auth-btn" style="background-color: #f0f0f0; color: #333;">연동 해제</a> -->
-    {# {% else %} #}
-        <!-- <p class="form-section-desc">주요 알림을 카카오톡으로 받으려면 계정을 연동하세요.</p>
-        <a href="{{ url_for('link_kakao') }}" class="auth-btn social-login-btn kakao">
-            <img src="{{ url_for('static', filename='img/kakao_login_large_wide.png') }}" alt="카카오 로그인"/>
-        </a> -->
-    {# {% endif %} #}
+    <p class="form-section-desc">
+        카카오톡 계정을 연동하여 시스템의 중요 알림을 메시지로 받아보세요.<br>
+        (예: 비지도 학습 모델의 이상 점수 감지 알림)
+    </p>
+    <div class="social-connect-section">
+        {% if current_user.kakao_access_token %}
+            <!-- 이미 연동된 경우 -->
+            <div class="kakao-connected">
+                <img src="{{ url_for('static', filename='img/icons/kakao_icon.png') }}" alt="Kakao Icon" class="kakao-icon">
+                <span>카카오톡 알림이 연동되어 있습니다.</span>
+                <form method="POST" action="{{ url_for('unlink_kakao') }}" style="display: inline-block; margin-left: 15px;">
+                    <button type="submit" class="btn-disconnect" onclick="return confirm('정말로 카카오톡 연동을 해제하시겠습니까?');">연동 해제</button>
+                </form>
+            </div>
+        {% else %}
+            <!-- 연동되지 않은 경우 -->
+            <a href="{{ url_for('link_kakao') }}" class="kakao-connect-btn">
+                <img src="{{ url_for('static', filename='img/icons/kakao_icon.png') }}" alt="Kakao Icon" class="kakao-icon">
+                카카오톡으로 알림 받기
+            </a>
+        {% endif %}
+    </div>
     <hr class="form-divider">
     <div class="delete-account-section">
         <p>계정을 영구적으로 삭제하시려면 아래 버튼을 클릭하세요. 이 작업은 되돌릴 수 없습니다.</p>
@@ -119,7 +130,9 @@
         </form>
     </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 $(function() {
     // 유효성 검사 상태 플래그
@@ -298,7 +311,7 @@ $(function() {
         }
     });
 
-    // ----- [추가] 관리자 코드 실시간 유효성 검사 -----
+    // ----- 관리자 코드 실시간 유효성 검사 -----
     let adminCodeCheckTimeout;  // 디바운싱 타이머
 
     // #admin_code 입력 필드가 존재할 경우에만 이벤트를 바인딩

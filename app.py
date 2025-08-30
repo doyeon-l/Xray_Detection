@@ -258,50 +258,60 @@ def allowed_file(filename):
 @login_required
 def connect_kakao_account():
     code = request.args.get('code')
-    rest_api_key = app.config['KAKAO_CLIENT_ID']
-    redirect_uri = url_for('connect_kakao_account', _external=True)
-
-    token_headers = {'Content-type': 'application/x-www-form-urlencoded;charset=utf-8'}
-    token_data = {
-        'grant_type': 'authorization_code',
-        'client_id': rest_api_key,
-        'redirect_uri': redirect_uri,
-        'code': code,
-    }
-    token_res = requests.post('https://kauth.kakao.com/oauth/token', headers=token_headers, data=token_data)
-    token_json = token_res.json()
-
-    # 디버깅을 위해 카카오 토큰 응답을 출력한다.
-    print(f"Kakao Token Response: {token_json}")
-
-    access_token = token_json.get("access_token")
-    refresh_token = token_json.get("refresh_token")
-    
-    # 'expires_in' 값을 안전하게 가져옵니다.
-    # 만약 'expires_in' 키가 없거나 값이 None이면 기본값 0을 사용한다.
-    expires_in_raw = token_json.get("expires_in", 0) 
-
-    # 'expires_in_raw'가 유효한 숫자인지 확인하고 int로 변환한다.
-    # 만약 유효하지 않으면 0으로 처리한다.
     try:
-        expires_in = int(expires_in_raw)
-    except (ValueError, TypeError):
-        expires_in = 0 # 숫자로 변환할 수 없는 경우 대체 값
+        rest_api_key = app.config['KAKAO_CLIENT_ID']
+        redirect_uri = url_for('connect_kakao_account', _external=True)
+        
+        client_secret = app.config['KAKAO_CLIENT_SECRET']
 
-    # 토큰 만료 시간 계산
-    expiry_time = datetime.now() + timedelta(seconds=expires_in)
+        token_headers = {'Content-type': 'application/x-www-form-urlencoded;charset=utf-8'}
+        token_data = {
+            'grant_type': 'authorization_code',
+            'client_id': rest_api_key,
+            'redirect_uri': redirect_uri,
+            'code': code,
+            'client_secret': client_secret,
+        }
+        token_res = requests.post('https://kauth.kakao.com/oauth/token', headers=token_headers, data=token_data)
+        token_json = token_res.json()
 
-    # DB에 토큰 정보 저장
-    conn = get_db_connection()
-    with conn.cursor() as cursor:
-        cursor.execute("""
-            UPDATE users SET kakao_access_token = %s, kakao_refresh_token = %s, kakao_token_expiry = %s
-            WHERE id = %s
-        """, (access_token, refresh_token, expiry_time, current_user.id))
-    conn.commit()
-    conn.close()
+        # 디버깅을 위해 카카오 토큰 응답을 항상 출력합니다.
+        print(f"Kakao Token Response for linking: {token_json}")
 
-    flash('카카오톡 계정이 성공적으로 연동되었습니다.', 'success')
+        # [핵심] access_token이 응답에 있는지 확인합니다.
+        if 'access_token' in token_json:
+            access_token = token_json.get("access_token")
+            refresh_token = token_json.get("refresh_token")
+            
+            expires_in_raw = token_json.get("expires_in", 0)
+            try:
+                expires_in = int(expires_in_raw)
+            except (ValueError, TypeError):
+                expires_in = 0
+            
+            expiry_time = datetime.now() + timedelta(seconds=expires_in)
+
+            # DB에 토큰 정보 저장
+            conn = get_db_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE users SET kakao_access_token = %s, kakao_refresh_token = %s, kakao_token_expiry = %s
+                    WHERE id = %s
+                """, (access_token, refresh_token, expiry_time, current_user.id))
+            conn.commit()
+            conn.close()
+
+            # [중요] 성공 시에는 'kakao_connect_success' 카테고리로 메시지를 보냅니다.
+            flash('카카오톡 알림이 성공적으로 연동되었습니다.', 'kakao_connect_success')
+        else:
+            # [중요] 실패 시에는 'kakao_connect_error' 카테고리로 메시지를 보냅니다.
+            error_description = token_json.get('error_description', '알 수 없는 오류가 발생했습니다.')
+            flash(f'카카오톡 연동에 실패했습니다. ({error_description})', 'kakao_connect_error')
+
+    except Exception as e:
+        print(f"카카오 연동 처리 중 예외 발생: {e}")
+        flash(f'서버 처리 중 오류가 발생하여 연동에 실패했습니다.', 'kakao_connect_error')
+        
     return redirect(url_for('profile'))
 
 def send_kakao_message_to_admins(message_text):
@@ -1275,6 +1285,9 @@ def register():
         company = request.form.get('company', '')
         role = request.form.get('role', '')
         terms = request.form.get('terms')
+        
+        # 폼에서 관리자 코드를 받는다.
+        admin_code_from_user = request.form.get('admin_code', '')
 
         if password != password_confirm:
             flash('비밀번호가 일치하지 않습니다.', 'error')
@@ -1282,6 +1295,23 @@ def register():
         if not terms:
             flash('이용약관에 동의해야 합니다.', 'error')
             return redirect(url_for('register'))
+        
+        # 관리자 코드가 유효한지 확인하여 is_admin 플래그를 설정합니다.
+        is_admin_flag = False # 기본값은 일반 사용자(False)
+        secret_code_from_config = app.config.get('ADMIN_SECRET_CODE', '').strip()
+        if admin_code_from_user and admin_code_from_user.strip() == secret_code_from_config:
+            is_admin_flag = True # 코드가 일치하면 관리자(True)로 설정
+
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM users WHERE userid = %s OR email = %s", (userid, email))
+            existing_user = cursor.fetchone()
+            if existing_user:
+                flash('이미 사용 중인 아이디 또는 이메일입니다.', 'error')
+                conn.close()
+                return redirect(url_for('register'))
+
+            hashed_password = generate_password_hash(password)
 
         conn = get_db_connection()
         with conn.cursor() as cursor:
@@ -1296,15 +1326,15 @@ def register():
             cursor.execute("""
                 INSERT INTO users (userid, password_hash, name, email, company, role, is_admin, is_onboarding_complete)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (userid, hashed_password, name, email, company, role, False, True))  # 자체 가입자는 is_onboarding_complete를 True로 간주
+            """, (userid, hashed_password, name, email, company, role, is_admin_flag, True))  # 자체 가입자는 is_onboarding_complete를 True로 간주
         conn.commit()
 
         # 가입 후 바로 로그인 시키고 온보딩 페이지로 이동 (또는 메인으로)
         # 이 부분은 정책에 따라 달라질 수 있다. 자체 가입 시에는 온보딩을 건너뛰고 바로 메인으로 보내도 좋다.
         # 여기서는 바로 로그인 시키고 메인으로 보내는 로직으로 수정한다.
-        new_user_id = cursor.lastrowid
-        user_obj = load_user(new_user_id)
-        login_user(user_obj)
+        # new_user_id = cursor.lastrowid
+        # user_obj = load_user(new_user_id)
+        # login_user(user_obj)
         conn.close()
 
         flash('회원가입이 완료되었습니다. 로그인해주세요.', 'register_success')
@@ -2036,6 +2066,38 @@ def authorize_kakao():
             login_user(user_obj)
             return redirect(url_for('complete_profile'))
     conn.close()
+
+# 카카오 알림 연동 시작
+@app.route('/link/kakao')
+@login_required
+def link_kakao():
+    """프로필 페이지에서 '카카오 연동'을 시작하는 라우트"""
+    # 콜백 URL은 기존에 작성해두신 /profile/kakao/connect 를 그대로 사용한다.
+    redirect_uri = url_for('connect_kakao_account', _external=True)
+    
+    # '나에게 메시지 보내기' 권한(scope)을 요청
+    # 이 부분이 로그인 흐름과 가장 큰 차이점이다.
+    return kakao.authorize_redirect(redirect_uri, scope='talk_message')
+
+# 카카오 알림 연동 해제
+@app.route('/unlink/kakao', methods=['POST'])
+@login_required
+def unlink_kakao():
+    """DB에 저장된 사용자의 카카오 토큰 정보를 삭제하여 연동을 해제하는 라우트"""
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            UPDATE users 
+            SET kakao_access_token = NULL, 
+                kakao_refresh_token = NULL, 
+                kakao_token_expiry = NULL
+            WHERE id = %s
+        """, (current_user.id,))
+    conn.commit()
+    conn.close()
+    
+    flash('카카오톡 알림 연동이 해제되었습니다.', 'kakao_unlink_success')
+    return redirect(url_for('profile'))
 
 @app.route('/complete_profile', methods=['GET', 'POST'])
 @login_required

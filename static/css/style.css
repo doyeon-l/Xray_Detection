@@ -1207,7 +1207,6 @@ input[readonly]:not(.datepicker-input) {
     line-height: 1.5;            /* 텍스트 세로 정렬 보정 */
 }
 
-
 /* --- Google 버튼 개별 스타일 --- */
 .social-login-btn.google {
     background-color: #FFFFFF !important;
@@ -1225,7 +1224,6 @@ input[readonly]:not(.datepicker-input) {
     background-color: #f0f0f0 !important;
     box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); /* 안쪽 그림자 효과 */
 }
-
 
 /* --- Kakao 버튼 개별 스타일 --- */
 .social-login-btn.kakao {
@@ -1247,6 +1245,63 @@ input[readonly]:not(.datepicker-input) {
 }
 .social-login-btn.kakao:active img {
   opacity: 0.8;
+}
+
+/* 계정 관리 페이지의 소셜 연동 버튼 스타일 */
+.social-connect-section {
+  margin-top: 15px;
+  margin-bottom: 25px;
+}
+.kakao-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 20px;
+  background-color: #FEE500;
+  color: #3C1E1E;
+  border: none;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.kakao-connect-btn:hover {
+  background-color: #f0d900;
+}
+.kakao-icon {
+  width: 20px;
+  height: 20px;
+  margin-right: 10px;
+}
+.kakao-connected {
+  display: flex;
+  align-items: center;
+  background-color: #f7f7f7;
+  padding: 12px 15px;
+  border-radius: 6px;
+  font-size: 15px;
+}
+.kakao-connected span {
+    white-space: nowrap; /* 텍스트가 줄바꿈되지 않도록 설정 */
+    flex-shrink: 0;      /* 공간이 부족해도 텍스트 영역이 줄어들지 않도록 설정 */
+}
+.kakao-connected form {
+  flex-shrink: 0; /* 공간이 부족해도 이 요소(폼)의 크기가 줄어들지 않도록 설정 */
+}
+.btn-disconnect {
+  padding: 5px 10px;
+  font-size: 13px;
+  background-color: #e9ecef;
+  color: #495057;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap; /* 텍스트가 줄바꿈되지 않도록 설정 */
+}
+.btn-disconnect:hover {
+  background-color: #dee2e6;
 }
 
 /* ================================== 반응형 웹 디자인 ================================== */

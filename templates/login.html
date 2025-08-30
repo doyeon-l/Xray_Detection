@@ -45,7 +45,7 @@
     </a>
     <!-- 카카오톡 로그인 버튼 -->
     <a href="{{ url_for('login_kakao') }}" class="auth-btn social-login-btn kakao">
-        <img src="static/img/kakao_login_large_wide.png" alt="카카오 로그인"/>
+        <img src="{{ url_for('static', filename='img/kakao_connect_btn.png') }}" alt="카카오 로그인"/>
     </a>
 </div>
 
