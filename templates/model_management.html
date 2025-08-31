@@ -241,6 +241,11 @@ $(document).ready(function() {
         }
     });
 
+    // 모달의 취소 버튼 클릭 시 닫기
+    $('#modal-cancel-btn').on('click', function() {
+        $('#action-modal').fadeOut();
+    });
+
     // ----- 2. 기존의 폴링 방식 상태 확인 함수 (페이지 첫 로드 시 사용) -----
     function checkInitialStatus() {
         $.getJSON('/api/retraining_status', function(job) {

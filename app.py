@@ -694,7 +694,11 @@ def get_unsupervised_retrain_count():
     with conn.cursor() as cursor:
         cursor.execute("""
             SELECT COUNT(*) as count FROM classified_objects 
-            WHERE initial_prediction = 'BAD' AND yolo_class = '1' AND is_reclassified = 1 AND del_yn = 'N'
+            WHERE initial_prediction = 'BAD' 
+                AND yolo_class = '1' 
+                AND is_reclassified = 1 
+                AND del_yn = 'N'
+                AND model_gb = 'U' 
         """)
         count = cursor.fetchone()['count']
     conn.close()

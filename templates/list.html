@@ -137,6 +137,15 @@
         const itemsPerPage = 20;  // 한 페이지에 표시할 항목 수
         let currentModelTab = 'S';  // 현재 활성화된 탭을 관리 ('S'가 기본)
 
+        // 페이지 로드 시 세션 저장소에서 마지막으로 활성화된 탭을 불러온다.
+        const savedTab = sessionStorage.getItem('activeModelTab');
+        if (savedTab) {
+            currentModelTab = savedTab;  // 저장된 탭으로 변수 업데이트
+            // 시각적으로도 해당 탭을 활성화 상태로 변경
+            $('.tab-btn').removeClass('active');
+            $(`.tab-btn[data-model="${savedTab}"]`).addClass('active');
+        }
+
         // 현재 업로드의 XHR과 Socket 객체를 저장할 전역 변수
         let currentUploadXhr = null;
         let currentUploadSocket = null;
@@ -379,6 +388,9 @@
             $('.tab-btn').removeClass('active');
             $(this).addClass('active');
             currentModelTab = $(this).data('model');
+
+            // 사용자가 클릭한 탭을 세션 저장소에 저장합니다.
+            sessionStorage.setItem('activeModelTab', currentModelTab);
 
             const modelName = currentModelTab === 'S' ? '지도학습' : '비지도학습';
             $('#upload-model-indicator').text(`${modelName} 모델로 업로드`);
