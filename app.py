@@ -579,12 +579,30 @@ def generate_grad_cam(item_id):
 
 
 # 성능 모니터링 API
-@app.route('/stats/performance_trend')
+@app.route('/stats/performance_by_period')
 @login_required
-def stats_performance_trend():
-    query = """
+def stats_performance_by_period():
+    period = request.args.get('period', 'weekly')
+    end_date_str = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
+    end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+
+    # 기간별로 그룹화할 포맷과 시작 날짜 기본값 설정
+    if period == 'daily':
+        start_date_str = request.args.get('start_date', (end_date - timedelta(days=30)).strftime('%Y-%m-%d'))
+        group_format = '%Y-%m-%d'
+    elif period == 'monthly':
+        start_date_str = request.args.get('start_date', (end_date - timedelta(days=365)).strftime('%Y-%m-%d'))
+        group_format = '%Y-%m'
+    elif period == 'yearly':
+        start_date_str = request.args.get('start_date', (end_date - timedelta(days=365*3)).strftime('%Y-%m-%d'))
+        group_format = '%Y'
+    else: # weekly (기본값)
+        start_date_str = request.args.get('start_date', (end_date - timedelta(weeks=12)).strftime('%Y-%m-%d'))
+        group_format = '%X-%v' # ISO 8601 연도-주차
+
+    query = f"""
         SELECT
-            YEARWEEK(created_at, 1) AS year_week,
+            DATE_FORMAT(created_at, '{group_format}') AS period_label,
             COUNT(id) AS total_count,
             SUM(CASE WHEN initial_prediction = 'GOOD' AND yolo_class = '1' THEN 1
                 WHEN initial_prediction = 'BAD' AND yolo_class = '0' THEN 1
@@ -592,31 +610,24 @@ def stats_performance_trend():
             SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) AS actual_bad,
             SUM(CASE WHEN initial_prediction = 'BAD' AND yolo_class = '0' THEN 1 ELSE 0 END) AS true_positives
         FROM classified_objects
-        WHERE del_yn = 'N'
-        GROUP BY year_week
-        ORDER BY year_week DESC
-        LIMIT 8;
+        WHERE del_yn = 'N' AND created_at BETWEEN %s AND %s
+        GROUP BY period_label
+        ORDER BY period_label ASC;
     """
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute(query)
+        cursor.execute(query, (start_date_str, end_date_str + ' 23:59:59'))
         data = cursor.fetchall()
-        
-        # fetchall()이 반환하는 튜플(tuple)을 리스트(list)로 변환
-        data = list(data)
 
-        for i, row in enumerate(data):
+        for row in data:
             total = row['total_count']
             correct = row['correct_count']
             actual_bad = row['actual_bad']
             tp = row['true_positives']
-
             row['accuracy'] = round((correct / total * 100) if total > 0 else 0, 2)
             row['recall'] = round((tp / actual_bad * 100) if actual_bad > 0 else 0, 2)
-            row['week_label'] = f"{- (len(data) - 1 - i)}주"
-
+            
     conn.close()
-    data.reverse()
     return jsonify(data)
     
 # 지도 학습 모델 재학습 트리거 API
@@ -1154,47 +1165,55 @@ def stats_monthly():
     conn.close()
     return jsonify(result)
 
-@app.route('/stats/score_distribution')
-def stats_score_distribution():
+@app.route('/stats/yearly')
+def stats_yearly():
+    end_date_str = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
+    end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+    start_date_str = request.args.get('start_date', (end_date - timedelta(days=365*3)).strftime('%Y-%m-%d')) # 3년치 데이터 조회
     model_gb = request.args.get('model_gb', 'S')
 
+    query = """
+        SELECT
+            YEAR(STR_TO_DATE(std_date, %s)) AS year,
+            COUNT(id) AS total_count,
+            SUM(CASE WHEN yolo_class = '1' THEN 1 ELSE 0 END) AS good_count,
+            SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) AS bad_count,
+            ROUND(IFNULL(SUM(CASE WHEN yolo_class = '0' THEN 1 ELSE 0 END) / COUNT(id) * 100, 0), 2) AS bad_rate
+        FROM classified_objects
+        WHERE del_yn = 'N' AND model_gb = %s AND STR_TO_DATE(std_date, %s) BETWEEN %s AND %s
+        GROUP BY year
+        ORDER BY year
+    """
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute("""
-            SELECT round(score, 3) AS score, COUNT(*) count FROM classified_objects
-			WHERE del_yn = 'N' AND model_gb = %s
-            GROUP BY round(score, 3)
-            ORDER BY score
-        """, (model_gb,))
+        cursor.execute(query, ('%Y%m%d', model_gb, '%Y%m%d', start_date_str, end_date_str))
         result = cursor.fetchall()
     conn.close()
     return jsonify(result)
 
-@app.route('/stats/reclassification_trend')
-def stats_reclassification_trend():
+@app.route('/stats/score_distribution')
+def stats_score_distribution():
     model_gb = request.args.get('model_gb', 'S')
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    params = [model_gb]
+    where_clause = "WHERE del_yn = 'N' AND model_gb = %s"
+    
+    if start_date and end_date:
+        where_clause += " AND std_date BETWEEN %s AND %s"
+        params.extend([start_date, end_date])
+
+    query = f"""
+        SELECT round(score, 3) AS score, COUNT(*) count FROM classified_objects
+        {where_clause}
+        GROUP BY round(score, 3)
+        ORDER BY score
+    """
 
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        # 일간 재분류 횟수 (최근 7일)
-        cursor.execute("""
-            WITH RECURSIVE date_seq AS (
-                SELECT DATE_SUB(CURDATE(), INTERVAL 7 DAY) AS dt
-                UNION ALL
-                SELECT DATE_ADD(dt, INTERVAL 1 DAY)
-                FROM date_seq
-                WHERE dt < CURDATE() -- DATE('2025-01-10')
-            )
-            SELECT
-                DATE_FORMAT(ds.dt, %s) AS std_date,
-                IFNULL(SUM(CASE WHEN IFNULL(co.is_reclassified, 0) AND DEL_YN != 'Y' THEN 1 ELSE 0 END), 0) AS re_count
-            FROM
-            date_seq ds
-            LEFT JOIN classified_objects co
-            ON DATE_FORMAT(co.modified_at, %s) = DATE_FORMAT(ds.dt, %s) AND co.model_gb = %s
-            GROUP BY ds.dt
-            ORDER BY ds.dt
-        """, ('%Y%m%d', '%Y%m%d', '%Y%m%d', model_gb,))
+        cursor.execute(query, tuple(params))
         result = cursor.fetchall()
     conn.close()
     return jsonify(result)
@@ -1485,17 +1504,20 @@ def profile():
 
 # 관리자 페이지: 회원 목록
 @app.route('/admin')
-@admin_required  # 관리자만 접근 가능
+@admin_required
 def admin_dashboard():
-    # 필터링 로직 추가
+    # 1. 페이지 번호와 페이지당 항목 수 설정
+    page = request.args.get('page', 1, type=int)
+    per_page = 15  # 한 페이지에 15명씩 표시
+    offset = (page - 1) * per_page
+
+    # 2. 기존 필터링 로직은 그대로 유지
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     is_admin = request.args.get('is_admin')
 
-    query = "SELECT * FROM users"
     conditions = []
     params = []
-
     if from_date:
         conditions.append("DATE(created_at) >= %s")
         params.append(from_date)
@@ -1505,19 +1527,29 @@ def admin_dashboard():
     if is_admin in ('0', '1'):
         conditions.append("is_admin = %s")
         params.append(is_admin)
-
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
     
-    query += " ORDER BY created_at DESC"
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
 
     conn = get_db_connection()
     with conn.cursor() as cursor:
-        cursor.execute(query, tuple(params))
+        # 3. 전체 회원 수를 먼저 계산 (필터링 조건 포함)
+        cursor.execute(f"SELECT COUNT(*) as total FROM users {where_clause}", tuple(params))
+        total_users = cursor.fetchone()['total']
+
+        # 4. 현재 페이지에 해당하는 회원 목록만 조회 (LIMIT, OFFSET 추가)
+        query_params = tuple(params + [per_page, offset])
+        cursor.execute(f"SELECT * FROM users {where_clause} ORDER BY created_at DESC LIMIT %s OFFSET %s", query_params)
         users = cursor.fetchall()
     conn.close()
-    return render_template('admin.html', users=users)
-    # --- [수정 끝] ---
+
+    # 5. 템플릿에 페이지네이션 관련 변수들을 함께 전달
+    return render_template(
+        'admin.html', 
+        users=users,
+        page=page,
+        per_page=per_page,
+        total_users=total_users
+    )
 
 # 모델 관리 페이지 라우트
 @app.route('/admin/model')

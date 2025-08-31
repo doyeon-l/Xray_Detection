@@ -3,60 +3,170 @@
 {% block title %}분류 통계 대시보드{% endblock %}
 
 {% block content %}
-<!-- Hero 영역: 배경 이미지만 가득 차게 -->
-<div class="main-hero">
-    <div class="hero-overlay">
-        <h1>X-Ray 이물질 검출 대시보드</h1>
-        <p>스크롤해서 통계를 확인하세요</p>
-    </div>
-</div>
+<div class="dashboard-wrapper">
+    <!-- 좌측 사이드바 메뉴 -->
+    <aside class="dashboard-sidebar">
+        <nav class="sidebar-menu">
+            <ul>
+                <li><a href="#home" class="menu-item active"><i class="fa-solid fa-house"></i> 대시보드 홈</a></li>
+                <li><a href="#period-stats" class="menu-item"><i class="fa-solid fa-calendar-days"></i> 기간별 통계</a></li>
+                <li><a href="#performance" class="menu-item"><i class="fa-solid fa-chart-bar"></i> 모델 성능</a></li>
+                <li><a href="#score" class="menu-item"><i class="fa-solid fa-brain"></i> 신뢰도 분포</a></li>
+                <li><a href="#reclassification" class="menu-item"><i class="fa-solid fa-pen-to-square"></i> 재분류 통계</a></li>
+            </ul>
+        </nav>
+    </aside>
 
-<div class="dashboard-container">
-    <div class="dashboard-header">
-        <h2>이미지 분류 통계</h2>
-    </div>
+    <!-- 메인 콘텐츠 영역 -->
+    <main class="dashboard-content">
+        <!-- 1. 대시보드 홈 섹션 -->
+        <section id="home" class="dashboard-section active">
+            <h2 class="section-title">종합 현황</h2>
+            <div class="chart-grid-container">
+                <div class="chart-container-large">
+                    <div id="realtime-status">
+                        <h3>실시간 검사 현황</h3>
+                        <p>총 검사: <span id="total-scans">...</span></p>
+                        <p>정상: <span id="total-good">...</span></p>
+                        <p style="color:red;">불량: <span id="total-bad">...</span></p>
+                    </div>
+                    <canvas id="overallChart"></canvas>
+                </div>
+            </div>
+        </section>
 
-<div class="dashboard-grid">
-    <!-- 20250813 이도연 수정 시작 (기간 선택과 실시간 검사 현황 순서 바꿈.) -->
-    <div class="chart-container large flex-row">
-        <div id="realtime-status">
-            <h3>실시간 검사 현황</h3>
-            <p>총 검사: <span id="total-scans">...</span> | 정상: <span id="total-good">...</span> | <span style="color:red;">불량: <span id="total-bad">...</span></span></p>
-        </div>
-        <canvas id="overallChart"></canvas>
-    </div>
-    
-    <!-- 모델 성능 모니터링 섹션 -->
-    <div class="chart-section performance-section">
-        <div class="chart-container"><canvas id="performanceChart"></canvas></div>
-    </div>
+        <!-- 2. 기간별 통계 섹션 -->
+        <section id="period-stats" class="dashboard-section">
+            <h2 class="section-title">기간별 통계</h2>
+            <div class="common-controls">
+                <span>모델 선택:</span>
+                <select id="model_gb_period" class="model-selector">
+                    <option value="S" selected>지도학습</option>
+                    <option value="U">비지도학습</option>
+                </select>
+            </div>
+            <!-- 탭 메뉴 -->
+            <div class="tab-controls">
+                <button class="tab-btn active" data-tab="daily">일간</button>
+                <button class="tab-btn" data-tab="weekly">주간</button>
+                <button class="tab-btn" data-tab="monthly">월간</button>
+                <button class="tab-btn" data-tab="yearly">연간</button>
+            </div>
+            <!-- 탭 콘텐츠 -->
+            <div id="daily" class="tab-content active">
+                <div class="date-controls">
+                    <input type="text" class="datepicker-input" id="start_date_daily"> ~ <input type="text" class="datepicker-input" id="end_date_daily">
+                    <button class="search-btn" data-period="daily">조회</button>
+                </div>
+                <div class="chart-container"><canvas id="dailyChart"></canvas></div>
+            </div>
+            <div id="weekly" class="tab-content">
+                 <div class="date-controls">
+                    <input type="text" class="datepicker-input" id="start_date_weekly"> ~ <input type="text" class="datepicker-input" id="end_date_weekly">
+                    <button class="search-btn" data-period="weekly">조회</button>
+                </div>
+                <div class="chart-container"><canvas id="weeklyChart"></canvas></div>
+            </div>
+            <div id="monthly" class="tab-content">
+                 <div class="date-controls">
+                    <input type="text" class="datepicker-input" id="start_date_monthly"> ~ <input type="text" class="datepicker-input" id="end_date_monthly">
+                    <button class="search-btn" data-period="monthly">조회</button>
+                </div>
+                <div class="chart-container"><canvas id="monthlyChart"></canvas></div>
+            </div>
+            <div id="yearly" class="tab-content">
+                 <div class="date-controls">
+                    <input type="text" class="datepicker-input" id="start_date_yearly"> ~ <input type="text" class="datepicker-input" id="end_date_yearly">
+                    <button class="search-btn" data-period="yearly">조회</button>
+                </div>
+                <div class="chart-container"><canvas id="yearlyChart"></canvas></div>
+            </div>
+        </section>
 
-    <div class="dashboard-controls flex-row">
-        <span>기간 선택 : </span>
-        <input type="text" id="start_date_dash" class="datepicker-input" readonly> ~ 
-        <input type="text" id="end_date_dash" class="datepicker-input" readonly>
+        <!-- 3. 모델 성능 섹션 -->
+        <section id="performance" class="dashboard-section">
+            <h2 class="section-title">모델 성능 추이</h2>
+            <div class="tab-controls-performance">
+                <button class="tab-btn-performance active" data-period="daily">일간</button>
+                <button class="tab-btn-performance" data-period="weekly">주간</button>
+                <button class="tab-btn-performance" data-period="monthly">월간</button>
+                <button class="tab-btn-performance" data-period="yearly">연간</button>
+            </div>
+            <div class="date-controls" id="performance-date-controls">
+                <input type="text" class="datepicker-input" id="start_date_performance"> ~ <input type="text" class="datepicker-input" id="end_date_performance">
+                <button class="search-btn-performance">조회</button>
+            </div>
+            <div class="chart-container full-width"><canvas id="performanceChart"></canvas></div>
+        </section>
 
-        <!-- 지도/비지도 학습 선택 콤보박스 -->
-        <select id="model_gb">
-            <option value="S">지도학습</option>
-            <option value="U">비지도학습</option>
-        </select>
+        <!-- 4. 신뢰도 분포 섹션 -->
+        <section id="score" class="dashboard-section">
+            <h2 class="section-title">모델 신뢰도(Score) 분포</h2>
+            <div class="common-controls">
+                <span>모델 선택:</span>
+                <select id="model_gb_score" class="model-selector">
+                    <option value="S" selected>지도학습</option>
+                    <option value="U">비지도학습</option>
+                </select>
+            </div>
+            <div class="date-controls" id="score-date-controls">
+                <input type="text" class="datepicker-input" id="start_date_score"> ~ <input type="text" class="datepicker-input" id="end_date_score">
+                <button class="search-btn-score">조회</button>
+            </div>
+            <div class="chart-container full-width"><canvas id="scoreChart"></canvas></div>
+        </section>
 
-        <button id="search_btn_dash">조회</button>
-    </div>
-    
-    <div class="chart-section daily-section"><div class="chart-container"><canvas id="dailyChart"></canvas></div></div>
-    <div class="chart-section weekly-section"><div class="chart-container"><canvas id="weeklyChart"></canvas></div></div>
-    <div class="chart-section monthly-section"><div class="chart-container"><canvas id="monthlyChart"></canvas></div></div>
-    <div class="chart-section score-section"><div class="chart-container"><canvas id="scoreChart"></canvas></div></div>
-    <div class="chart-section reclass-section"><div class="chart-container"><canvas id="reclassChart"></canvas></div></div>
-</div>
+        <!-- 5. 재분류 통계 섹션 -->
+        <section id="reclassification" class="dashboard-section">
+            <h2 class="section-title">기간별 재분류 횟수</h2>
+            <div class="common-controls">
+                <span>모델 선택:</span>
+                <select id="model_gb_reclass" class="model-selector">
+                    <option value="S" selected>지도학습</option>
+                    <option value="U">비지도학습</option>
+                </select>
+            </div>
+            <div class="tab-controls-reclass">
+                <button class="tab-btn-reclass active" data-tab="reclass_daily">일간</button>
+                <button class="tab-btn-reclass" data-tab="reclass_weekly">주간</button>
+                <button class="tab-btn-reclass" data-tab="reclass_monthly">월간</button>
+                <button class="tab-btn-reclass" data-tab="reclass_yearly">연간</button>
+            </div>
+            <div id="reclass_daily" class="tab-content-reclass active">
+                <div class="date-controls">
+                    <input type="text" class="datepicker-input" id="start_date_reclass_daily"> ~ <input type="text" class="datepicker-input" id="end_date_reclass_daily">
+                    <button class="search-btn-reclass" data-period="daily">조회</button>
+                </div>
+                <div class="chart-container"><canvas id="reclassDailyChart"></canvas></div>
+            </div>
+            <div id="reclass_weekly" class="tab-content-reclass">
+                <div class="date-controls">
+                    <input type="text" class="datepicker-input" id="start_date_reclass_weekly"> ~ <input type="text" class="datepicker-input" id="end_date_reclass_weekly">
+                    <button class="search-btn-reclass" data-period="weekly">조회</button>
+                </div>
+                <div class="chart-container"><canvas id="reclassWeeklyChart"></canvas></div>
+            </div>
+            <div id="reclass_monthly" class="tab-content-reclass">
+                <div class="date-controls">
+                    <input type="text" class="datepicker-input" id="start_date_reclass_monthly"> ~ <input type="text" class="datepicker-input" id="end_date_reclass_monthly">
+                    <button class="search-btn-reclass" data-period="monthly">조회</button>
+                </div>
+                <div class="chart-container"><canvas id="reclassMonthlyChart"></canvas></div>
+            </div>
+            <div id="reclass_yearly" class="tab-content-reclass">
+                <div class="date-controls">
+                    <input type="text" class="datepicker-input" id="start_date_reclass_yearly"> ~ <input type="text" class="datepicker-input" id="end_date_reclass_yearly">
+                    <button class="search-btn-reclass" data-period="yearly">조회</button>
+                </div>
+                <div class="chart-container"><canvas id="reclassYearlyChart"></canvas></div>
+            </div>
+        </section>
+    </main>
 </div>
 <script>
 $(function() {
-    let chartInstances = {}; // 모든 차트 객체를 관리
+    let chartInstances = {};
 
-    // 차트 렌더링/업데이트 함수
     function renderOrUpdateChart(canvasId, chartConfig) {
         if (chartInstances[canvasId]) {
             chartInstances[canvasId].destroy();
@@ -65,69 +175,12 @@ $(function() {
         chartInstances[canvasId] = new Chart(ctx, chartConfig);
     }
 
-    // 성능 모니터링 차트 렌더링 함수
-    function renderPerformanceChart() {
-        $.getJSON('/stats/performance_trend', function(data) {
-            const labels = data.map(d => d.week_label);
-            const recall = data.map(d => d.recall);
-            const accuracy = data.map(d => d.accuracy);
-            
-            renderOrUpdateChart('performanceChart', {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        { label: '재현율 (Recall)', data: recall, borderColor: '#dc3545', tension: 0.1, yAxisID: 'y' },
-                        { label: '정확도 (Accuracy)', data: accuracy, borderColor: '#007bff', tension: 0.1, yAxisID: 'y' }
-                    ]
-                },
-                options: {
-                    responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5,
-                    plugins: { title: { display: true, text: '📊 주간 모델 성능 추이', font: { size: 16 } } },
-                    scales: {
-                        y: { beginAtZero: true, max: 100, title: { display: true, text: '성능 지표 (%)' } }
-                    }
-                }
-            });
-        });
-    }
-
-    // 데이터 패칭 및 차트 생성 함수들
-    function fetchAndRender(url, canvasId, title, labelKey, params = {}) {
-        $.getJSON(url, params, function(data) {
-            const labels = data.map(d => d[labelKey]);
-            const good = data.map(d => d.good_count || d.ok_count || 0);
-            const bad = data.map(d => d.bad_count || d.ng_count || 0);
-            const rate = data.map(d => d.bad_rate || d.ng_rate || 0);
-            
-            renderOrUpdateChart(canvasId, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        { label: '정상', data: good, backgroundColor: 'green' },
-                        { label: '불량', data: bad, backgroundColor: 'red' },
-                        { label: '불량률(%)', data: rate, type: 'line', borderColor: 'blue', yAxisID: 'y1' }
-                    ]
-                },
-                options: {
-                    responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5,
-                    plugins: { title: { display: true, text: title, font: { size: 16 } } },
-                    scales: {
-                        y: { beginAtZero: true, title: { display: true, text: '건수' } },
-                        y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: '불량률(%)' } }
-                    }
-                }
-            });
-        });
-    }
-
+    // --- 1. 대시보드 홈 (종합 현황) ---
     function updateOverallStatus() {
         $.getJSON('/stats/overall', function(data) {
             $('#total-scans').text(data.total_count || 0);
             $('#total-bad').text(data.bad_count || 0);
             $('#total-good').text(data.good_count || 0);
-            
             renderOrUpdateChart('overallChart', {
                 type: 'doughnut',
                 data: {
@@ -135,11 +188,13 @@ $(function() {
                     datasets: [{
                         data: [data.good_count, data.bad_count],
                         backgroundColor: ['#28a745', '#dc3545'],
-                        borderColor: '#fff', borderWidth: 2
+                        borderColor: '#fff',
+                        borderWidth: 2
                     }]
                 },
                 options: {
-                    responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5,
+                    responsive: true,
+                    maintainAspectRatio: false,
                     plugins: {
                         title: { display: true, text: '📈 전체 정품/불량 비율', font: { size: 16 } },
                         legend: { position: 'bottom' }
@@ -149,62 +204,217 @@ $(function() {
         });
     }
 
+    // --- 2. 기간별 통계 ---
+    function renderPeriodChart(period) {
+        const params = {
+            start_date: $(`#start_date_${period}`).val(),
+            end_date: $(`#end_date_${period}`).val(),
+            model_gb: $('#model_gb_period').val()
+        };
+        let url, canvasId, title, labelKey, xLabel;
+        if (period === 'daily') {
+            url = '/stats/daily'; canvasId = 'dailyChart'; title = '📆 일간 통계'; labelKey = 'std_date'; xLabel = '날짜';
+        } else if (period === 'weekly') {
+            url = '/stats/weekly'; canvasId = 'weeklyChart'; title = '📅 주간 통계'; labelKey = 'week_label'; xLabel = '주차';
+        } else if (period === 'monthly') {
+            url = '/stats/monthly'; canvasId = 'monthlyChart'; title = '🗓️ 월간 통계'; labelKey = 'year_months'; xLabel = '월';
+        } else {
+            url = '/stats/yearly'; canvasId = 'yearlyChart'; title = '🗓️ 연간 통계'; labelKey = 'year'; xLabel = '연도';
+        }
+        $.getJSON(url, params, function(data) {
+            renderOrUpdateChart(canvasId, {
+                type: 'bar',
+                data: {
+                    labels: data.map(d => d[labelKey]),
+                    datasets: [
+                        { label: '정상', data: data.map(d => d.good_count || 0), backgroundColor: 'green' },
+                        { label: '불량', data: data.map(d => d.bad_count || 0), backgroundColor: 'red' },
+                        { label: '불량률(%)', data: data.map(d => d.bad_rate || 0), type: 'line', borderColor: 'blue', yAxisID: 'y1' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { title: { display: true, text: title, font: { size: 16 } } },
+                    scales: {
+                        x: { title: { display: true, text: xLabel } },
+                        y: { beginAtZero: true, title: { display: true, text: '건수' } },
+                        y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: '불량률(%)' } }
+                    }
+                }
+            });
+        });
+    }
+
+    // --- 3. 모델 성능 ---
+    function renderPerformanceChartByPeriod() {
+        const period = $('.tab-btn-performance.active').data('period');
+        const params = {
+            period: period,
+            start_date: $('#start_date_performance').val(),
+            end_date: $('#end_date_performance').val()
+        };
+
+        // 1. 데이터가 비어있는 차트의 '틀'을 먼저 정의하고 그린다.
+        const initialConfig = {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: '재현율 (Recall)', data: [], borderColor: '#dc3545', tension: 0.1 },
+                    { label: '정확도 (Accuracy)', data: [], borderColor: '#007bff', tension: 0.1 }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { title: { display: true, text: `📊 ${period.toUpperCase()} 모델 성능 추이`, font: { size: 16 } } },
+                scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: '성능 지표 (%)' } } }
+            }
+        };
+        renderOrUpdateChart('performanceChart', initialConfig);
+        
+        // 2. 서버에서 데이터를 가져온 후, 기존 차트에 데이터를 업데이트한다.
+        $.getJSON('/stats/performance_by_period', params, function(data) {
+            const chart = chartInstances['performanceChart'];
+            if (chart && data) {
+                chart.data.labels = data.map(d => d.period_label);
+                chart.data.datasets[0].data = data.map(d => d.recall);
+                chart.data.datasets[1].data = data.map(d => d.accuracy);
+                chart.update();  // 차트 업데이트
+            }
+        });
+    }
+
+    // --- 4. 신뢰도 분포 ---
     function renderScoreChart() {
-        $.getJSON('/stats/score_distribution', data => {
-            const labels = data.map(d => d.score);
-            const counts = data.map(d => d.count);
-            
+        const params = {
+            model_gb: $('#model_gb_score').val(),
+            start_date: $('#start_date_score').val(),
+            end_date: $('#end_date_score').val()
+        };
+        $.getJSON('/stats/score_distribution', params, data => {
             renderOrUpdateChart('scoreChart', {
                 type: 'bar',
-                data: { labels: labels, datasets: [{ label: '판별 건수', data: counts, backgroundColor: '#ffc107' }] },
-                options: { responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5, plugins: { title: { display: true, text: '🧠 모델 신뢰도(Score) 분포', font: { size: 16 } } }, scales: { y: { beginAtZero: true, title: { text: '건수' } } } }
-            });
-            
-        });
-    }
-    
-    function renderReclassChart() {
-        $.getJSON('/stats/reclassification_trend', data => {
-            const labels = data.map(d => d.std_date);
-            const counts = data.map(d => d.re_count);
-            renderOrUpdateChart('reclassChart', {
-                type: 'line',
-                data: { labels: labels, datasets: [{ label: '수정 건수', data: counts, borderColor: '#6f42c1', fill: false }] },
-                options: { responsive: true, maintainAspectRatio: false, devicePixelRatio: window.devicePixelRatio * 1.5, plugins: { title: { display: true, text: '✍️ 일간 재분류 횟수', font: { size: 16 } } }, scales: { y: { beginAtZero: true, title: { text: '건수' } } } }
+                data: {
+                    labels: data.map(d => d.score),
+                    datasets: [{ label: '판별 건수', data: data.map(d => d.count), backgroundColor: '#ffc107' }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { title: { display: true, text: '🧠 모델 신뢰도(Score) 분포', font: { size: 16 } } },
+                    scales: { y: { beginAtZero: true, title: { text: '건수' } } }
+                }
             });
         });
     }
-    
-    function updateDashboardCharts() {
-        const params = {
-            start_date: $('#start_date_dash').val(),
-            end_date: $('#end_date_dash').val(),
-            // 콤보박스에서 선택된 값을 파라미터로 추가
-            model_gb: $('#model_gb').val()
-        };
-        fetchAndRender('/stats/daily', 'dailyChart', '📆 일간 통계', 'std_date', params);
-        fetchAndRender('/stats/weekly', 'weeklyChart', '📅 주간 통계', 'week_label', params);
-        fetchAndRender('/stats/monthly', 'monthlyChart', '🗓️ 월간 통계', 'year_months', params);
-    }
-    
-    // 초기화 및 이벤트 바인딩
-    $("#start_date_dash, #end_date_dash").datepicker({ dateFormat: 'yy-mm-dd', maxDate: 0 });
-    const today = new Date();
-    const aMonthAgo = new Date();
-    aMonthAgo.setMonth(today.getMonth() - 1);
-    $("#start_date_dash").datepicker("setDate", aMonthAgo);
-    $("#end_date_dash").datepicker("setDate", today);
 
-    $('#search_btn_dash').click(updateDashboardCharts);
+    // --- 5. 재분류 통계 ---
+    function renderReclassChart(period) {
+        const params = {
+            start_date: $(`#start_date_reclass_${period}`).val(),
+            end_date: $(`#end_date_reclass_${period}`).val(),
+            model_gb: $('#model_gb_reclass').val(),
+            period: period
+        };
+        const canvasId = `reclass${period.charAt(0).toUpperCase() + period.slice(1)}Chart`;
+        const title = `✍️ ${period.charAt(0).toUpperCase() + period.slice(1)} Reclassification Count`;
+
+        // 1. 데이터가 비어있는 차트의 '틀'을 먼저 정의하고 그린다.
+        const initialConfig = {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{ label: '수정 건수', data: [], borderColor: '#6f42c1', fill: false }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { title: { display: true, text: title, font: { size: 16 } } },
+                scales: { y: { beginAtZero: true, title: { text: '건수' } } }
+            }
+        };
+        renderOrUpdateChart(canvasId, initialConfig);
+
+        // 2. 서버에서 데이터를 가져온 후, 기존 차트에 데이터를 업데이트한다.
+        $.getJSON('/stats/reclassification_trend_by_period', params, data => {
+            const chart = chartInstances[canvasId];
+            if (chart && data) {
+                chart.data.labels = data.map(d => d.period_label);
+                chart.data.datasets[0].data = data.map(d => d.re_count);
+                chart.update();  // 차트 업데이트
+            }
+        });
+    }
+
+    // --- 초기화 및 이벤트 바인딩 ---
+    $('.menu-item').on('click', function(e) {
+        e.preventDefault();
+        const targetSection = $(this).attr('href');
+        $('.menu-item').removeClass('active');
+        $(this).addClass('active');
+        $('.dashboard-section').removeClass('active');
+        $(targetSection).addClass('active');
+
+        if (targetSection === '#home') updateOverallStatus();
+        if (targetSection === '#performance') $('.tab-btn-performance.active').trigger('click');
+        if (targetSection === '#score') renderScoreChart();
+        if (targetSection === '#period-stats') $('.tab-btn.active').trigger('click');
+        if (targetSection === '#reclassification') $('.tab-btn-reclass.active').trigger('click');
+    });
+
+    // 기간별 통계 이벤트
+    $('.tab-btn').on('click', function() {
+        const tabId = $(this).data('tab');
+        $('.tab-btn').removeClass('active');
+        $(this).addClass('active');
+        $('.tab-content').removeClass('active');
+        $('#' + tabId).addClass('active');
+        renderPeriodChart(tabId);
+    });
+    $('.search-btn').on('click', function() { renderPeriodChart($(this).data('period')); });
+    $('#model_gb_period').on('change', function() { renderPeriodChart($('.tab-btn.active').data('tab')); });
+
+    // 모델 성능 이벤트
+    $('.tab-btn-performance').on('click', function() {
+        $('.tab-btn-performance').removeClass('active');
+        $(this).addClass('active');
+        renderPerformanceChartByPeriod();
+    });
+    $('.search-btn-performance').on('click', renderPerformanceChartByPeriod);
+
+    // 신뢰도 분포 이벤트
+    $('#model_gb_score, .search-btn-score').on('change click', renderScoreChart);
+
+    // 재분류 통계 이벤트
+    $('.tab-btn-reclass').on('click', function() {
+        const tabId = $(this).data('tab').split('_')[1];
+        $('.tab-btn-reclass').removeClass('active');
+        $(this).addClass('active');
+        $('.tab-content-reclass').removeClass('active');
+        $('#reclass_' + tabId).addClass('active');
+        renderReclassChart(tabId);
+    });
+    $('.search-btn-reclass').on('click', function() { renderReclassChart($(this).data('period')); });
+    $('#model_gb_reclass').on('change', function() { renderReclassChart($('.tab-btn-reclass.active').data('tab').split('_')[1]); });
+
+    // Datepicker 초기화
+    $(".datepicker-input").datepicker({ dateFormat: 'yy-mm-dd', maxDate: 0 });
+    const today = new Date();
+    const aMonthAgo = new Date(new Date().setMonth(today.getMonth() - 1));
+    const aYearAgo = new Date(new Date().setFullYear(today.getFullYear() - 1));
+
+    // 기간별 통계, 재분류 통계 날짜 초기화
+    $("#end_date_daily, #end_date_weekly, #end_date_monthly, #end_date_yearly, #end_date_reclass_daily, #end_date_reclass_weekly, #end_date_reclass_monthly, #end_date_reclass_yearly").datepicker("setDate", today);
+    $("#start_date_daily, #start_date_reclass_daily").datepicker("setDate", new Date(today.getFullYear(), today.getMonth() - 1, today.getDate()));
+    $("#start_date_weekly, #start_date_reclass_weekly").datepicker("setDate", new Date(today.getFullYear(), today.getMonth() - 3, today.getDate()));
+    $("#start_date_monthly, #start_date_reclass_monthly").datepicker("setDate", new Date(today.getFullYear() - 1, today.getMonth(), today.getDate()));
+    $("#start_date_yearly, #start_date_reclass_yearly").datepicker("setDate", new Date(today.getFullYear() - 3, today.getMonth(), today.getDate()));
     
+    // 모델 성능, 신뢰도 분포 날짜 초기화 (기본 주간)
+    $("#start_date_performance, #start_date_score").datepicker("setDate", new Date(today.getFullYear(), today.getMonth() - 3, today.getDate()));
+    $("#end_date_performance, #end_date_score").datepicker("setDate", today);
+    
+    // 초기 로드: 첫 화면(홈) 표시
     updateOverallStatus();
     setInterval(updateOverallStatus, 10000);
-
-    renderPerformanceChart();
-    
-    updateDashboardCharts();
-    renderScoreChart();
-    renderReclassChart();
 });
 </script>
 {% endblock %}

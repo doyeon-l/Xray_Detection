@@ -4,7 +4,6 @@
 {% block content %}
 <div class="admin-container">
     <h2>회원 관리</h2>
-    <!-- 🔴 [추가] 고급 필터링 UI -->
     <div class="controls" style="margin-bottom: 20px; justify-content: flex-start;">
         <form method="GET" action="{{ url_for('admin_dashboard') }}" class="filter-group">
             <span>가입일:</span>
@@ -23,7 +22,9 @@
             <a href="{{ url_for('admin_dashboard') }}" style="margin-left: 5px; color: #555; font-size: 0.9em;">필터 초기화</a>
         </form>
     </div>
-    <p>총 {{ users|length }}명의 회원이 있습니다.</p>
+    
+    <!-- 총 회원 수를 users|length 대신 total_users로 변경 -->
+    <p>총 {{ total_users }}명의 회원이 있습니다.</p>
 
     <table class="admin-table">
         <thead>
@@ -41,7 +42,6 @@
         </thead>
         <tbody>
             {% for user in users %}
-            <!-- 현재 로그인한 사용자의 행에 'current-admin-row' 클래스를 추가 -->
             <tr class="{{ 'current-admin-row' if user.id == current_user.id else '' }}">
                 <td>{{ user.id }}</td>
                 <td>{{ user.userid }}</td>
@@ -58,29 +58,85 @@
                 </td>
                 <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
                 <td>
-                    <!-- 대상이 현재 로그인한 관리자가 아니고, '일반 사용자'일 경우에만 버튼 표시 -->
                     {% if user.id != current_user.id and not user.is_admin %}
-                        
-                        <!-- 일반 사용자를 관리자로 임명하는 버튼 -->
                         <form action="{{ url_for('toggle_admin', user_id=user.id) }}" method="POST" style="display:inline;">
                             <button type="submit" class="btn-promote">관리자 임명</button>
                         </form>
-                        
-                        <!-- 일반 사용자 삭제 버튼 -->
                         <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" style="display:inline;" onsubmit="return confirm('정말로 이 사용자를 삭제하시겠습니까?');">
                             <button type="submit" class="btn-delete">삭제</button>
                         </form>
-
-                    <!-- 대상이 '자기 자신'일 경우 -->
                     {% elif user.id == current_user.id %}
                         <span class="self-indicator">(현재 계정)</span>
-                    
-                    <!-- 대상이 '다른 관리자'일 경우, 아무 버튼도 표시하지 않음. -->
                     {% endif %}
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+
+    <!-- 페이지네이션 UI 렌더링 부분 -->
+    <div id="pagination-controls">
+        {% set total_pages = (total_users / per_page)|round(0, 'ceil')|int %}
+        <ul class="pagination">
+            {% if total_users > 0 %}
+                {% set query_params = request.args.to_dict() %}
+
+                <!-- 맨 처음 & 이전 버튼 -->
+                <li class="page-item {{ 'disabled' if page == 1 else '' }}">
+                    {% if page > 1 %}
+                        {% set _ = query_params.update({'page': 1}) %}
+                        <a class="page-link" href="{{ url_for('admin_dashboard', **query_params) }}">&laquo;</a>
+                    {% else %}
+                        <span class="page-link">&laquo;</span>
+                    {% endif %}
+                </li>
+                <li class="page-item {{ 'disabled' if page == 1 else '' }}">
+                    {% if page > 1 %}
+                        {% set _ = query_params.update({'page': page - 1}) %}
+                        <a class="page-link" href="{{ url_for('admin_dashboard', **query_params) }}">&lsaquo;</a>
+                    {% else %}
+                        <span class="page-link">&lsaquo;</span>
+                    {% endif %}
+                </li>
+
+                <!-- 페이지 번호 버튼 -->
+                {% for p in range([1, page-2]|max, [total_pages, page+2]|min + 1) %}
+                <li class="page-item {{ 'active' if p == page else '' }}">
+                    {% if p == page %}
+                        <span class="page-link">{{ p }}</span>
+                    {% else %}
+                        {% set _ = query_params.update({'page': p}) %}
+                        <a class="page-link" href="{{ url_for('admin_dashboard', **query_params) }}">{{ p }}</a>
+                    {% endif %}
+                </li>
+                {% endfor %}
+
+                <!-- 다음 & 맨 끝 버튼 -->
+                <li class="page-item {{ 'disabled' if page == total_pages else '' }}">
+                    {% if page < total_pages %}
+                        {% set _ = query_params.update({'page': page + 1}) %}
+                        <a class="page-link" href="{{ url_for('admin_dashboard', **query_params) }}">&rsaquo;</a>
+                    {% else %}
+                        <span class="page-link">&rsaquo;</span>
+                    {% endif %}
+                </li>
+                <li class="page-item {{ 'disabled' if page == total_pages else '' }}">
+                    {% if page < total_pages %}
+                        {% set _ = query_params.update({'page': total_pages}) %}
+                        <a class="page-link" href="{{ url_for('admin_dashboard', **query_params) }}">&raquo;</a>
+                    {% else %}
+                        <span class="page-link">&raquo;</span>
+                    {% endif %}
+                </li>
+            {% else %}
+                <!-- 결과가 0건일 때 -->
+                <li class="page-item disabled"><span class="page-link">&laquo;</span></li>
+                <li class="page-item disabled"><span class="page-link">&lsaquo;</span></li>
+                <li class="page-item active"><span class="page-link">1</span></li>
+                <li class="page-item disabled"><span class="page-link">&rsaquo;</span></li>
+                <li class="page-item disabled"><span class="page-link">&raquo;</span></li>
+            {% endif %}
+        </ul>
+    </div>
 </div>
 {% endblock %}
